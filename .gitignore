@@ -13,3 +13,4 @@ mobile/ios/
 .idea/
 .claude/
 CLAUDE.md
+*.db

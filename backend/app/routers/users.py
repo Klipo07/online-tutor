@@ -16,6 +16,10 @@ from app.schemas.user import (
     ProgressResponse,
     UserProgressResponse,
 )
+from app.services.progress_service import (
+    get_user_stats,
+    get_test_history,
+)
 
 router = APIRouter()
 
@@ -76,3 +80,23 @@ async def get_progress(
     ]
 
     return UserProgressResponse(user_id=current_user.id, progress=progress)
+
+
+@router.get("/me/stats")
+async def get_stats(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Общая статистика пользователя — тесты, чаты, занятия."""
+    stats = await get_user_stats(db, current_user.id)
+    return {"user_id": current_user.id, **stats}
+
+
+@router.get("/me/test-history")
+async def get_user_test_history(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """История прохождения тестов."""
+    history = await get_test_history(db, current_user.id)
+    return {"user_id": current_user.id, "history": history}

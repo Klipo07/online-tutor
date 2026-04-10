@@ -286,6 +286,10 @@ async def submit_test(
     db.add(attempt)
     await db.commit()
 
+    # Обновляем прогресс ученика
+    from app.services.progress_service import update_progress_after_test
+    await update_progress_after_test(db, current_user.id, test, percentage)
+
     return SubmitTestResponse(
         score=correct,
         total=total,
@@ -296,15 +300,14 @@ async def submit_test(
 
 
 @router.get("/recommendations")
-async def get_recommendations(
+async def ai_recommendations(
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Персональные рекомендации на основе прогресса."""
+    """Персональные рекомендации на основе прогресса и истории."""
+    from app.services.progress_service import get_recommendations
+    recommendations = await get_recommendations(db, current_user.id)
     return {
         "user_id": current_user.id,
-        "recommendations": [
-            "Повторите тему: Квадратные уравнения",
-            "Пройдите тест по теме: Производная",
-        ],
-        "message": "recommendations — TODO: анализ на основе прогресса",
+        "recommendations": recommendations,
     }
