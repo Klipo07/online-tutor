@@ -22,3 +22,4 @@ class StudentProgress(Base):
 
     # Связи
     user: Mapped["User"] = relationship(back_populates="progress")
+    subject: Mapped["Subject"] = relationship()

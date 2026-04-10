@@ -1,29 +1,138 @@
-"""Роутер занятий — бронирование, список, отмена."""
+"""Роутер занятий — бронирование, список, детали, отмена."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database import get_db
+from app.dependencies import get_current_user
+from app.models.user import User
+from app.schemas.session import (
+    SessionCreateRequest,
+    SessionResponse,
+    SessionListResponse,
+    SessionCancelResponse,
+)
+from app.services.session_service import (
+    create_booking,
+    get_user_sessions,
+    get_session_by_id,
+    cancel_booking,
+)
 
 router = APIRouter()
 
 
-@router.post("/")
-async def create_session():
-    """Создать бронирование занятия."""
-    return {"message": "create session — TODO"}
+def _session_to_response(booking) -> SessionResponse:
+    """Преобразовать BookingSession в SessionResponse."""
+    return SessionResponse(
+        id=booking.id,
+        student_id=booking.student_id,
+        tutor_id=booking.tutor_id,
+        subject_id=booking.subject_id,
+        tutor_name=booking.tutor.user.full_name,
+        subject_name=booking.subject.name,
+        scheduled_at=booking.scheduled_at,
+        duration_minutes=booking.duration_minutes,
+        status=booking.status.value,
+        price=float(booking.price),
+        payment_status=booking.payment_status.value,
+        agora_channel_name=booking.agora_channel_name,
+        created_at=booking.created_at,
+    )
 
 
-@router.get("/")
-async def list_sessions():
-    """Мои занятия."""
-    return {"message": "sessions list — TODO"}
+@router.post("/", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
+async def create_session(
+    data: SessionCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Создать бронирование занятия с репетитором."""
+    try:
+        booking = await create_booking(
+            db,
+            student_id=current_user.id,
+            tutor_id=data.tutor_id,
+            subject_id=data.subject_id,
+            scheduled_at=data.scheduled_at,
+            duration_minutes=data.duration_minutes,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+    # Перезагружаем с join для ответа
+    booking = await get_session_by_id(db, booking.id)
+    return _session_to_response(booking)
 
 
-@router.get("/{session_id}")
-async def get_session(session_id: int):
-    """Детали занятия."""
-    return {"message": f"session {session_id} — TODO"}
+@router.get("/", response_model=SessionListResponse)
+async def list_sessions(
+    status_filter: str | None = Query(
+        None, alias="status",
+        description="Фильтр по статусу: pending, confirmed, completed, cancelled",
+    ),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Список занятий текущего пользователя."""
+    sessions = await get_user_sessions(db, current_user.id, status_filter)
+    return SessionListResponse(
+        sessions=[_session_to_response(s) for s in sessions],
+        total=len(sessions),
+    )
 
 
-@router.put("/{session_id}/cancel")
-async def cancel_session(session_id: int):
-    """Отмена занятия."""
-    return {"message": f"cancel session {session_id} — TODO"}
+@router.get("/{session_id}", response_model=SessionResponse)
+async def get_session(
+    session_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Детали конкретного занятия."""
+    booking = await get_session_by_id(db, session_id)
+    if booking is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Занятие не найдено",
+        )
+
+    # Проверяем доступ — только участники
+    is_student = booking.student_id == current_user.id
+    is_tutor = booking.tutor.user_id == current_user.id
+    if not is_student and not is_tutor:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="У вас нет доступа к этому занятию",
+        )
+
+    return _session_to_response(booking)
+
+
+@router.put("/{session_id}/cancel", response_model=SessionCancelResponse)
+async def cancel_session(
+    session_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Отмена бронирования занятия."""
+    try:
+        booking = await cancel_booking(db, session_id, current_user.id)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except PermissionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        )
+
+    return SessionCancelResponse(
+        id=booking.id,
+        status=booking.status.value,
+        message="Занятие успешно отменено",
+    )

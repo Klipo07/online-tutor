@@ -49,3 +49,4 @@ class BookingSession(Base):
     tutor: Mapped["TutorProfile"] = relationship(
         back_populates="booking_sessions", foreign_keys=[tutor_id]
     )
+    subject: Mapped["Subject"] = relationship()

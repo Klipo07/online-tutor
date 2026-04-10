@@ -26,3 +26,4 @@ class TutorProfile(Base):
     booking_sessions: Mapped[list["BookingSession"]] = relationship(
         back_populates="tutor", foreign_keys="BookingSession.tutor_id"
     )
+    reviews: Mapped[list["Review"]] = relationship(back_populates="tutor")
