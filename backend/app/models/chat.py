@@ -13,6 +13,9 @@ class AIProvider(str, enum.Enum):
     """Провайдер AI."""
     openai = "openai"
     anthropic = "anthropic"
+    gemini = "gemini"
+    openrouter = "openrouter"
+    yandex = "yandex"
 
 
 class MessageRole(str, enum.Enum):

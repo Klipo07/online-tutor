@@ -38,8 +38,9 @@ async def chat(
     AI помнит контекст диалога в рамках сессии.
     """
     provider = get_ai_provider()
+    existing_session = None
 
-    # Получить или создать сессию чата
+    # Получить существующую сессию и историю
     if data.session_id:
         result = await db.execute(
             select(ChatSession)
@@ -49,36 +50,20 @@ async def chat(
                 ChatSession.user_id == current_user.id,
             )
         )
-        session = result.scalar_one_or_none()
-        if not session:
+        existing_session = result.scalar_one_or_none()
+        if not existing_session:
             raise HTTPException(status_code=404, detail="Сессия чата не найдена")
-    else:
-        session = ChatSession(
-            user_id=current_user.id,
-            subject_id=None,
-            topic=data.topic,
-            provider=AIProvider(provider.__class__.__name__.replace("Provider", "").lower()),
-        )
-        db.add(session)
-        await db.flush()
-        session.messages = []
 
     # Собираем историю сообщений для контекста
-    history = [
-        {"role": msg.role.value, "content": msg.content}
-        for msg in session.messages
-    ]
+    history = []
+    if existing_session:
+        history = [
+            {"role": msg.role.value, "content": msg.content}
+            for msg in existing_session.messages
+        ]
     history.append({"role": "user", "content": data.message})
 
-    # Сохраняем сообщение пользователя
-    user_msg = ChatMessage(
-        session_id=session.id,
-        role=MessageRole.user,
-        content=data.message,
-    )
-    db.add(user_msg)
-
-    # Получаем ответ от AI
+    # Получаем ответ от AI (до операций с БД)
     try:
         ai_response = await provider.chat(
             messages=history,
@@ -88,9 +73,29 @@ async def chat(
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Ошибка AI-провайдера: {str(e)}")
 
+    # Создаём сессию если новая
+    if not existing_session:
+        provider_name = provider.__class__.__name__.replace("Provider", "").lower()
+        existing_session = ChatSession(
+            user_id=current_user.id,
+            subject_id=None,
+            topic=data.topic,
+            provider=AIProvider(provider_name),
+        )
+        db.add(existing_session)
+        await db.flush()
+
+    # Сохраняем сообщение пользователя
+    user_msg = ChatMessage(
+        session_id=existing_session.id,
+        role=MessageRole.user,
+        content=data.message,
+    )
+    db.add(user_msg)
+
     # Сохраняем ответ AI
     assistant_msg = ChatMessage(
-        session_id=session.id,
+        session_id=existing_session.id,
         role=MessageRole.assistant,
         content=ai_response,
     )
@@ -98,7 +103,7 @@ async def chat(
     await db.commit()
 
     return ChatMessageResponse(
-        session_id=session.id,
+        session_id=existing_session.id,
         content=ai_response,
     )
 

@@ -20,11 +20,18 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
 
     # AI провайдер
-    AI_PROVIDER: str = "openai"  # openai | anthropic
+    AI_PROVIDER: str = "openai"  # openai | anthropic | gemini | openrouter | yandex
     OPENAI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
     AI_MODEL_OPENAI: str = "gpt-4o-mini"
     AI_MODEL_ANTHROPIC: str = "claude-sonnet-4-5"
+    GEMINI_API_KEY: str = ""
+    AI_MODEL_GEMINI: str = "gemini-2.0-flash"
+    OPENROUTER_API_KEY: str = ""
+    AI_MODEL_OPENROUTER: str = "google/gemini-2.0-flash-exp:free"
+    YANDEX_API_KEY: str = ""
+    YANDEX_FOLDER_ID: str = ""
+    AI_MODEL_YANDEX: str = "yandexgpt-lite/latest"
 
     # Agora (видеозвонки)
     AGORA_APP_ID: str = ""
