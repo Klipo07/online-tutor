@@ -1,11 +1,11 @@
 """Конфигурация тестов — фикстуры для БД, клиента и аутентификации."""
 
 import asyncio
-from datetime import datetime
 
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
+from passlib.context import CryptContext
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base, get_db
@@ -13,7 +13,11 @@ from app.main import app
 from app.models.user import User, UserRole
 from app.models.subject import Subject, Topic
 from app.models.tutor import TutorProfile
+from app.services import auth_service
 from app.services.auth_service import hash_password, create_access_token
+
+# Ускоренный bcrypt для тестов (rounds=4 вместо дефолтных 12) — снижает время тестов в разы
+auth_service.pwd_context = CryptContext(schemes=["bcrypt"], bcrypt__rounds=4, deprecated="auto")
 
 
 # Тестовая БД — SQLite in-memory
@@ -67,8 +71,9 @@ async def test_user(db_session: AsyncSession) -> User:
     """Тестовый пользователь-ученик."""
     user = User(
         email="student@test.com",
-        password_hash=hash_password("password123"),
-        full_name="Иван Тестов",
+        password_hash=hash_password("Password123"),
+        first_name="Иван",
+        last_name="Тестов",
         role=UserRole.student,
     )
     db_session.add(user)
@@ -82,8 +87,9 @@ async def test_tutor_user(db_session: AsyncSession) -> User:
     """Тестовый пользователь-репетитор."""
     user = User(
         email="tutor@test.com",
-        password_hash=hash_password("password123"),
-        full_name="Анна Репетиторова",
+        password_hash=hash_password("Password123"),
+        first_name="Анна",
+        last_name="Репетиторова",
         role=UserRole.tutor,
     )
     db_session.add(user)

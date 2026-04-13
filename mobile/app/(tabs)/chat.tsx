@@ -1,5 +1,5 @@
 // Экран AI-чата с тьютором
-import { useState, useRef } from "react";
+import { memo, useState, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -20,6 +20,16 @@ type Message = {
   role: "user" | "assistant";
   content: string;
 };
+
+const MessageBubble = memo(function MessageBubble({ message }: { message: Message }) {
+  const isUser = message.role === "user";
+  return (
+    <View style={[styles.messageBubble, isUser ? styles.userBubble : styles.aiBubble]}>
+      {!isUser && <Text style={styles.aiLabel}>AI Тьютор</Text>}
+      <Text style={[styles.messageText, isUser && styles.userText]}>{message.content}</Text>
+    </View>
+  );
+});
 
 export default function ChatScreen() {
   const { subject } = useLocalSearchParams<{ subject?: string }>();
@@ -80,22 +90,15 @@ export default function ChatScreen() {
     }
   };
 
-  const renderMessage = ({ item }: { item: Message }) => {
-    const isUser = item.role === "user";
-    return (
-      <View
-        style={[
-          styles.messageBubble,
-          isUser ? styles.userBubble : styles.aiBubble,
-        ]}
-      >
-        {!isUser && <Text style={styles.aiLabel}>AI Тьютор</Text>}
-        <Text style={[styles.messageText, isUser && styles.userText]}>
-          {item.content}
-        </Text>
-      </View>
-    );
-  };
+  const renderMessage = useCallback(
+    ({ item }: { item: Message }) => <MessageBubble message={item} />,
+    [],
+  );
+  const keyExtractor = useCallback((item: Message) => item.id, []);
+  const scrollToEnd = useCallback(
+    () => flatListRef.current?.scrollToEnd({ animated: true }),
+    [],
+  );
 
   return (
     <KeyboardAvoidingView
@@ -107,11 +110,9 @@ export default function ChatScreen() {
         ref={flatListRef}
         data={messages}
         renderItem={renderMessage}
-        keyExtractor={(item) => item.id}
+        keyExtractor={keyExtractor}
         contentContainerStyle={styles.messagesList}
-        onContentSizeChange={() =>
-          flatListRef.current?.scrollToEnd({ animated: true })
-        }
+        onContentSizeChange={scrollToEnd}
       />
 
       {loading && (

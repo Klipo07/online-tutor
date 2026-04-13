@@ -1,6 +1,6 @@
 """Сервис прогресса и аналитики — обновление, статистика, рекомендации."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,7 +10,6 @@ from app.models.progress import StudentProgress
 from app.models.test import Test, TestAttempt
 from app.models.chat import ChatSession
 from app.models.booking import BookingSession, BookingStatus
-from app.models.subject import Subject
 
 
 async def update_progress_after_test(
@@ -35,7 +34,7 @@ async def update_progress_after_test(
             subject_id=test.subject_id,
             score=score,
             weak_topics=[],
-            last_activity=datetime.utcnow(),
+            last_activity=datetime.now(timezone.utc).replace(tzinfo=None),
         )
         db.add(progress)
     else:
@@ -47,7 +46,7 @@ async def update_progress_after_test(
         avg_result = await db.execute(avg_query)
         avg_score = avg_result.scalar() or score
         progress.score = round(float(avg_score))
-        progress.last_activity = datetime.utcnow()
+        progress.last_activity = datetime.now(timezone.utc).replace(tzinfo=None)
 
     # Определяем слабые темы (тесты с баллом < 60)
     weak_query = (

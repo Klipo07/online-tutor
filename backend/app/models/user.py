@@ -4,6 +4,7 @@ import enum
 from datetime import date, datetime
 
 from sqlalchemy import String, Enum, Date, DateTime, func
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -26,7 +27,8 @@ class User(Base):
     phone: Mapped[str | None] = mapped_column(String(20))
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.student)
-    full_name: Mapped[str] = mapped_column(String(150))
+    first_name: Mapped[str] = mapped_column(String(75))
+    last_name: Mapped[str] = mapped_column(String(75))
     avatar_url: Mapped[str | None] = mapped_column(String(500))
     birth_date: Mapped[date | None] = mapped_column(Date)
     is_active: Mapped[bool] = mapped_column(default=True)
@@ -42,3 +44,7 @@ class User(Base):
     chat_sessions: Mapped[list["ChatSession"]] = relationship(back_populates="user")
     progress: Mapped[list["StudentProgress"]] = relationship(back_populates="user")
     test_attempts: Mapped[list["TestAttempt"]] = relationship(back_populates="user")
+
+    @hybrid_property
+    def full_name(self) -> str:
+        return f"{self.first_name} {self.last_name}".strip()

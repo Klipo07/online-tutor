@@ -1,5 +1,5 @@
 // Экран профиля, прогресса и аналитики
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
 import { useAuthStore } from "../../store/authStore";
 import api from "../../services/api";
 import { Colors } from "../../constants/theme";
+import { Avatar } from "../../components/Avatar";
 
 type Stats = {
   tests_completed: number;
@@ -115,10 +116,8 @@ export default function ProfileScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>
-            {user?.full_name?.split(" ").map((n) => n[0]).join("") || "?"}
-          </Text>
+        <View style={styles.avatarWrap}>
+          <Avatar name={user?.full_name || "?"} size={72} fontSize={24} />
         </View>
         <Text style={styles.name}>{user?.full_name}</Text>
         <Text style={styles.email}>{user?.email}</Text>
@@ -326,16 +325,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
-  avatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: Colors.primary,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  avatarText: { color: "#fff", fontSize: 24, fontWeight: "700" },
+  avatarWrap: { marginBottom: 12 },
   name: { fontSize: 20, fontWeight: "700", color: Colors.text },
   email: { fontSize: 14, color: Colors.textSecondary, marginTop: 4 },
   badge: {

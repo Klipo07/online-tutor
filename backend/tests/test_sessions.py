@@ -1,6 +1,11 @@
 """Тесты бронирования занятий — создание, список, отмена."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+
+def _utc_naive_now() -> datetime:
+    """Текущее время UTC без tzinfo (совпадает с наивным datetime в тестовой БД)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 import pytest
 from httpx import AsyncClient
@@ -20,7 +25,7 @@ class TestSessionsAPI:
         auth_headers: dict,
     ):
         """Успешное бронирование занятия."""
-        tomorrow = (datetime.utcnow() + timedelta(days=1)).isoformat()
+        tomorrow = (_utc_naive_now() + timedelta(days=1)).isoformat()
         response = await client.post("/api/v1/sessions/", json={
             "tutor_id": test_tutor_profile.id,
             "subject_id": test_subject.id,
@@ -37,13 +42,13 @@ class TestSessionsAPI:
 
     @pytest.mark.asyncio
     async def test_create_session_unauthorized(self, client: AsyncClient):
-        """Бронирование без авторизации возвращает 403."""
+        """Бронирование без авторизации возвращает 401."""
         response = await client.post("/api/v1/sessions/", json={
             "tutor_id": 1,
             "subject_id": 1,
-            "scheduled_at": datetime.utcnow().isoformat(),
+            "scheduled_at": _utc_naive_now().isoformat(),
         })
-        assert response.status_code == 403
+        assert response.status_code == 401
 
     @pytest.mark.asyncio
     async def test_create_session_past_time(
@@ -52,7 +57,7 @@ class TestSessionsAPI:
         auth_headers: dict,
     ):
         """Бронирование в прошлом возвращает 400."""
-        yesterday = (datetime.utcnow() - timedelta(days=1)).isoformat()
+        yesterday = (_utc_naive_now() - timedelta(days=1)).isoformat()
         response = await client.post("/api/v1/sessions/", json={
             "tutor_id": test_tutor_profile.id,
             "subject_id": test_subject.id,
@@ -76,7 +81,7 @@ class TestSessionsAPI:
         auth_headers: dict,
     ):
         """Список содержит созданное занятие."""
-        tomorrow = (datetime.utcnow() + timedelta(days=1)).isoformat()
+        tomorrow = (_utc_naive_now() + timedelta(days=1)).isoformat()
         await client.post("/api/v1/sessions/", json={
             "tutor_id": test_tutor_profile.id,
             "subject_id": test_subject.id,
@@ -94,7 +99,7 @@ class TestSessionsAPI:
         auth_headers: dict,
     ):
         """Отмена бронирования."""
-        tomorrow = (datetime.utcnow() + timedelta(days=1)).isoformat()
+        tomorrow = (_utc_naive_now() + timedelta(days=1)).isoformat()
         create_res = await client.post("/api/v1/sessions/", json={
             "tutor_id": test_tutor_profile.id,
             "subject_id": test_subject.id,
@@ -117,7 +122,7 @@ class TestSessionsAPI:
     ):
         """Доступ к чужому занятию возвращает 403."""
         # Создаём занятие от test_user
-        tomorrow = (datetime.utcnow() + timedelta(days=1)).isoformat()
+        tomorrow = (_utc_naive_now() + timedelta(days=1)).isoformat()
         create_res = await client.post("/api/v1/sessions/", json={
             "tutor_id": test_tutor_profile.id,
             "subject_id": test_subject.id,

@@ -64,13 +64,19 @@ async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
 
 
 async def create_user(
-    db: AsyncSession, email: str, password: str, full_name: str, role: str
+    db: AsyncSession,
+    email: str,
+    password: str,
+    first_name: str,
+    last_name: str,
+    role: str,
 ) -> User:
     """Создать нового пользователя."""
     user = User(
         email=email,
         password_hash=hash_password(password),
-        full_name=full_name,
+        first_name=first_name,
+        last_name=last_name,
         role=UserRole(role),
     )
     db.add(user)

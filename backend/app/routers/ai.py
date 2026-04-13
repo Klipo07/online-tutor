@@ -1,5 +1,7 @@
 """Роутер AI-тьютора — чат, проверка ДЗ, генерация тестов."""
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +11,7 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.user import User
 from app.models.chat import ChatSession, ChatMessage, AIProvider, MessageRole
+from app.models.test import Test, TestAttempt, Difficulty
 from app.schemas.ai import (
     ChatMessageRequest,
     ChatMessageResponse,
@@ -22,6 +25,7 @@ from app.schemas.ai import (
     SubmitTestResponse,
 )
 from app.services.ai_service import get_ai_provider
+from app.services.progress_service import get_recommendations, update_progress_after_test
 
 router = APIRouter()
 
@@ -208,7 +212,6 @@ async def generate_test(
         raise HTTPException(status_code=502, detail=f"Ошибка AI-провайдера: {str(e)}")
 
     # Парсим ответ AI (упрощённо — в MVP)
-    import json
     try:
         # Пытаемся извлечь JSON из ответа
         start = response.find("[")
@@ -220,7 +223,6 @@ async def generate_test(
         ]
 
     # Сохраняем тест в БД
-    from app.models.test import Test, Difficulty
     test = Test(
         subject_id=1,
         topic=data.topic,
@@ -253,8 +255,6 @@ async def submit_test(
     db: AsyncSession = Depends(get_db),
 ):
     """Сдать тест и получить разбор ошибок от AI."""
-    from app.models.test import Test, TestAttempt
-
     result = await db.execute(select(Test).where(Test.id == data.test_id))
     test = result.scalar_one_or_none()
     if not test:
@@ -292,7 +292,6 @@ async def submit_test(
     await db.commit()
 
     # Обновляем прогресс ученика
-    from app.services.progress_service import update_progress_after_test
     await update_progress_after_test(db, current_user.id, test, percentage)
 
     return SubmitTestResponse(
@@ -310,7 +309,6 @@ async def ai_recommendations(
     db: AsyncSession = Depends(get_db),
 ):
     """Персональные рекомендации на основе прогресса и истории."""
-    from app.services.progress_service import get_recommendations
     recommendations = await get_recommendations(db, current_user.id)
     return {
         "user_id": current_user.id,

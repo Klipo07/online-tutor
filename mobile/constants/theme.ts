@@ -1,7 +1,6 @@
 // Цвета и стили приложения
 export const Colors = {
   primary: "#4F46E5",
-  primaryDark: "#4338CA",
   secondary: "#10B981",
   background: "#F9FAFB",
   surface: "#FFFFFF",

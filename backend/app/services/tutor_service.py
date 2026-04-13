@@ -5,7 +5,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.models.tutor import TutorProfile
-from app.models.user import User
 from app.models.review import Review
 
 
@@ -25,12 +24,6 @@ async def get_tutors(
         .where(TutorProfile.is_verified == True)
     )
 
-    # Фильтр по предмету (ищем в JSON-массиве)
-    if subject:
-        query = query.where(
-            TutorProfile.subjects.op("@>")(f'["{subject}"]')
-        )
-
     # Фильтр по цене
     if min_price is not None:
         query = query.where(TutorProfile.price_per_hour >= min_price)
@@ -41,17 +34,16 @@ async def get_tutors(
     if min_rating is not None:
         query = query.where(TutorProfile.rating >= min_rating)
 
-    # Считаем общее количество
-    count_query = select(func.count()).select_from(query.subquery())
-    total_result = await db.execute(count_query)
-    total = total_result.scalar() or 0
-
-    # Пагинация и сортировка по рейтингу
     query = query.order_by(TutorProfile.rating.desc())
-    query = query.offset((page - 1) * per_page).limit(per_page)
-
     result = await db.execute(query)
-    profiles = result.unique().scalars().all()
+    all_profiles = result.unique().scalars().all()
+
+    # Фильтр по предмету — в Python, чтобы работало на любом SQL-диалекте
+    if subject:
+        all_profiles = [p for p in all_profiles if subject in (p.subjects or [])]
+
+    total = len(all_profiles)
+    profiles = all_profiles[(page - 1) * per_page : page * per_page]
 
     # Формируем ответ с данными пользователя
     tutors = []

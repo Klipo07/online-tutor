@@ -1,6 +1,6 @@
 """Pydantic-схемы для репетиторов и отзывов."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TutorResponse(BaseModel):
@@ -18,7 +18,7 @@ class TutorResponse(BaseModel):
     is_verified: bool
     avatar_url: str | None = None
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TutorListResponse(BaseModel):
@@ -44,4 +44,4 @@ class ReviewResponse(BaseModel):
     rating: int
     comment: str
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)

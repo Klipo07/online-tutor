@@ -6,6 +6,8 @@ import api from "../services/api";
 type User = {
   id: number;
   email: string;
+  first_name: string;
+  last_name: string;
   full_name: string;
   role: string;
   avatar_url: string | null;
@@ -16,7 +18,12 @@ type AuthState = {
   isLoading: boolean;
   isAuth: boolean;
 
-  register: (email: string, password: string, fullName: string) => Promise<void>;
+  register: (
+    email: string,
+    password: string,
+    firstName: string,
+    lastName: string
+  ) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
@@ -27,11 +34,12 @@ export const useAuthStore = create<AuthState>((set) => ({
   isLoading: true,
   isAuth: false,
 
-  register: async (email, password, fullName) => {
+  register: async (email, password, firstName, lastName) => {
     const res = await api.post("/auth/register", {
       email,
       password,
-      full_name: fullName,
+      first_name: firstName,
+      last_name: lastName,
       role: "student",
     });
     const { user, tokens } = res.data;

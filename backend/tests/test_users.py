@@ -21,20 +21,23 @@ class TestUsersAPI:
 
     @pytest.mark.asyncio
     async def test_get_profile_unauthorized(self, client: AsyncClient):
-        """Запрос профиля без токена возвращает 403."""
+        """Запрос профиля без токена возвращает 401."""
         response = await client.get("/api/v1/users/me")
-        assert response.status_code == 403
+        assert response.status_code == 401
 
     @pytest.mark.asyncio
     async def test_update_profile(self, client: AsyncClient, test_user: User, auth_headers: dict):
         """Обновление профиля пользователя."""
         response = await client.put("/api/v1/users/me", json={
-            "full_name": "Иван Обновлённый",
+            "first_name": "Иван",
+            "last_name": "Обновлённый",
             "phone": "+79991234567",
         }, headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
         assert data["full_name"] == "Иван Обновлённый"
+        assert data["first_name"] == "Иван"
+        assert data["last_name"] == "Обновлённый"
         assert data["phone"] == "+79991234567"
 
     @pytest.mark.asyncio

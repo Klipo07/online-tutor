@@ -37,7 +37,9 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
         )
 
     # Создаём пользователя
-    user = await create_user(db, data.email, data.password, data.full_name, data.role)
+    user = await create_user(
+        db, data.email, data.password, data.first_name, data.last_name, data.role
+    )
 
     # Генерируем токены
     tokens = TokenResponse(

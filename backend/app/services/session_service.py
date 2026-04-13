@@ -1,9 +1,9 @@
 """Сервис бронирования занятий — создание, отмена, список."""
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -35,21 +35,25 @@ async def create_booking(
     if subject is None:
         raise ValueError("Предмет не найден")
 
-    # Проверяем что время не в прошлом
-    if scheduled_at < datetime.utcnow():
+    # Проверяем что время не в прошлом (храним naive UTC, совпадает с scheduled_at из Pydantic)
+    now_utc_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+    if scheduled_at < now_utc_naive:
         raise ValueError("Нельзя забронировать занятие в прошлом")
 
-    # Проверяем пересечение времени у репетитора
+    # Проверяем пересечение времени — пересечение считаем в Python,
+    # чтобы SQL-запрос работал на любом диалекте (PostgreSQL/SQLite)
     end_time = scheduled_at + timedelta(minutes=duration_minutes)
-    conflict_query = select(BookingSession).where(
-        BookingSession.tutor_id == tutor_id,
-        BookingSession.status.in_([BookingStatus.pending, BookingStatus.confirmed]),
-        BookingSession.scheduled_at < end_time,
-        (BookingSession.scheduled_at + func.make_interval(0, 0, 0, 0, 0, BookingSession.duration_minutes)) > scheduled_at,
+    active_bookings = await db.execute(
+        select(BookingSession).where(
+            BookingSession.tutor_id == tutor_id,
+            BookingSession.status.in_([BookingStatus.pending, BookingStatus.confirmed]),
+            BookingSession.scheduled_at < end_time,
+        )
     )
-    result = await db.execute(conflict_query)
-    if result.scalar_one_or_none():
-        raise ValueError("У репетитора уже есть занятие на это время")
+    for existing in active_bookings.scalars():
+        existing_end = existing.scheduled_at + timedelta(minutes=existing.duration_minutes)
+        if existing_end > scheduled_at:
+            raise ValueError("У репетитора уже есть занятие на это время")
 
     # Рассчитываем стоимость
     price = float(tutor.price_per_hour) * duration_minutes / 60

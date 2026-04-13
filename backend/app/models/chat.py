@@ -3,7 +3,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, String, Text, Enum, DateTime, Integer, func
+from sqlalchemy import ForeignKey, String, Text, Enum, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -11,10 +11,7 @@ from app.database import Base
 
 class AIProvider(str, enum.Enum):
     """Провайдер AI."""
-    openai = "openai"
     anthropic = "anthropic"
-    gemini = "gemini"
-    openrouter = "openrouter"
     yandex = "yandex"
 
 
@@ -32,7 +29,7 @@ class ChatSession(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     subject_id: Mapped[int | None] = mapped_column(ForeignKey("subjects.id"))
     topic: Mapped[str | None] = mapped_column(String(300))
-    provider: Mapped[AIProvider] = mapped_column(Enum(AIProvider), default=AIProvider.openai)
+    provider: Mapped[AIProvider] = mapped_column(Enum(AIProvider), default=AIProvider.anthropic)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     # Связи
@@ -50,7 +47,6 @@ class ChatMessage(Base):
     session_id: Mapped[int] = mapped_column(ForeignKey("chat_sessions.id"))
     role: Mapped[MessageRole] = mapped_column(Enum(MessageRole))
     content: Mapped[str] = mapped_column(Text)
-    tokens_used: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     # Связи

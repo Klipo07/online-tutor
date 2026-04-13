@@ -1,9 +1,12 @@
-"""AI-сервис с абстрактным провайдером — OpenAI и Anthropic.
+"""AI-сервис с абстрактным провайдером — Anthropic (Claude) и YandexGPT.
 
 Переключение провайдера через переменную AI_PROVIDER в .env.
 """
 
 from abc import ABC, abstractmethod
+
+import httpx
+from anthropic import AsyncAnthropic
 
 from app.config import settings
 
@@ -43,38 +46,10 @@ class BaseAIProvider(ABC):
         return TUTOR_SYSTEM_PROMPT.format(subject=subject, topic=topic)
 
 
-class OpenAIProvider(BaseAIProvider):
-    """Провайдер OpenAI (GPT)."""
-
-    def __init__(self):
-        from openai import AsyncOpenAI
-        self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-        self.model = settings.AI_MODEL_OPENAI
-
-    async def chat(
-        self,
-        messages: list[dict],
-        subject: str = "Общий",
-        topic: str = "Свободная тема",
-    ) -> str:
-        """Отправить запрос в OpenAI API."""
-        system_prompt = self._build_system_prompt(subject, topic)
-        full_messages = [{"role": "system", "content": system_prompt}] + messages
-
-        response = await self.client.chat.completions.create(
-            model=self.model,
-            messages=full_messages,
-            max_tokens=2048,
-            temperature=0.7,
-        )
-        return response.choices[0].message.content
-
-
 class AnthropicProvider(BaseAIProvider):
     """Провайдер Anthropic (Claude)."""
 
     def __init__(self):
-        from anthropic import AsyncAnthropic
         self.client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
         self.model = settings.AI_MODEL_ANTHROPIC
 
@@ -85,75 +60,13 @@ class AnthropicProvider(BaseAIProvider):
         topic: str = "Свободная тема",
     ) -> str:
         """Отправить запрос в Anthropic API."""
-        system_prompt = self._build_system_prompt(subject, topic)
-
         response = await self.client.messages.create(
             model=self.model,
-            system=system_prompt,
+            system=self._build_system_prompt(subject, topic),
             messages=messages,
             max_tokens=2048,
         )
         return response.content[0].text
-
-
-class GeminiProvider(BaseAIProvider):
-    """Провайдер Google Gemini через OpenAI-совместимый API."""
-
-    def __init__(self):
-        from openai import AsyncOpenAI
-        self.client = AsyncOpenAI(
-            api_key=settings.GEMINI_API_KEY,
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-        )
-        self.model = settings.AI_MODEL_GEMINI
-
-    async def chat(
-        self,
-        messages: list[dict],
-        subject: str = "Общий",
-        topic: str = "Свободная тема",
-    ) -> str:
-        """Отправить запрос в Google Gemini API."""
-        system_prompt = self._build_system_prompt(subject, topic)
-        full_messages = [{"role": "system", "content": system_prompt}] + messages
-
-        response = await self.client.chat.completions.create(
-            model=self.model,
-            messages=full_messages,
-            max_tokens=2048,
-            temperature=0.7,
-        )
-        return response.choices[0].message.content
-
-
-class OpenRouterProvider(BaseAIProvider):
-    """Провайдер OpenRouter — агрегатор AI API через OpenAI-совместимый endpoint."""
-
-    def __init__(self):
-        from openai import AsyncOpenAI
-        self.client = AsyncOpenAI(
-            api_key=settings.OPENROUTER_API_KEY,
-            base_url="https://openrouter.ai/api/v1",
-        )
-        self.model = settings.AI_MODEL_OPENROUTER
-
-    async def chat(
-        self,
-        messages: list[dict],
-        subject: str = "Общий",
-        topic: str = "Свободная тема",
-    ) -> str:
-        """Отправить запрос в OpenRouter API."""
-        system_prompt = self._build_system_prompt(subject, topic)
-        full_messages = [{"role": "system", "content": system_prompt}] + messages
-
-        response = await self.client.chat.completions.create(
-            model=self.model,
-            messages=full_messages,
-            max_tokens=2048,
-            temperature=0.7,
-        )
-        return response.choices[0].message.content
 
 
 class YandexProvider(BaseAIProvider):
@@ -173,10 +86,9 @@ class YandexProvider(BaseAIProvider):
         topic: str = "Свободная тема",
     ) -> str:
         """Отправить запрос в YandexGPT API."""
-        import httpx
-
-        system_prompt = self._build_system_prompt(subject, topic)
-        yandex_messages = [{"role": "system", "text": system_prompt}]
+        yandex_messages = [
+            {"role": "system", "text": self._build_system_prompt(subject, topic)}
+        ]
         for m in messages:
             yandex_messages.append({"role": m["role"], "text": m["content"]})
 
@@ -205,12 +117,6 @@ class YandexProvider(BaseAIProvider):
 
 def get_ai_provider() -> BaseAIProvider:
     """Получить AI-провайдер на основе настроек."""
-    if settings.AI_PROVIDER == "anthropic":
-        return AnthropicProvider()
-    if settings.AI_PROVIDER == "gemini":
-        return GeminiProvider()
-    if settings.AI_PROVIDER == "openrouter":
-        return OpenRouterProvider()
     if settings.AI_PROVIDER == "yandex":
         return YandexProvider()
-    return OpenAIProvider()
+    return AnthropicProvider()

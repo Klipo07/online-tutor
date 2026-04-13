@@ -14,9 +14,13 @@ import {
 import { useRouter } from "expo-router";
 import { useAuthStore } from "../../store/authStore";
 import { Colors } from "../../constants/theme";
+import PasswordStrengthIndicator, {
+  isPasswordValid,
+} from "../../components/PasswordStrengthIndicator";
 
 export default function RegisterScreen() {
-  const [fullName, setFullName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -25,12 +29,19 @@ export default function RegisterScreen() {
   const router = useRouter();
 
   const handleRegister = async () => {
-    if (!fullName || !email || !password) {
+    if (!firstName.trim() || !lastName.trim() || !email || !password) {
       Alert.alert("Ошибка", "Заполните все поля");
       return;
     }
-    if (password.length < 6) {
-      Alert.alert("Ошибка", "Пароль минимум 6 символов");
+    if (firstName.trim().length < 2 || lastName.trim().length < 2) {
+      Alert.alert("Ошибка", "Имя и фамилия — минимум 2 символа");
+      return;
+    }
+    if (!isPasswordValid(password)) {
+      Alert.alert(
+        "Слабый пароль",
+        "Пароль должен содержать минимум 6 символов, включая букву и заглавную букву"
+      );
       return;
     }
     if (password !== confirmPassword) {
@@ -40,9 +51,17 @@ export default function RegisterScreen() {
 
     setLoading(true);
     try {
-      await register(email.trim().toLowerCase(), password, fullName.trim());
+      await register(
+        email.trim().toLowerCase(),
+        password,
+        firstName.trim(),
+        lastName.trim()
+      );
     } catch (e: any) {
-      const msg = e.response?.data?.detail || "Ошибка регистрации";
+      const detail = e.response?.data?.detail;
+      const msg = Array.isArray(detail)
+        ? detail.map((d: any) => d.msg).join("\n")
+        : detail || "Ошибка регистрации";
       Alert.alert("Ошибка", msg);
     } finally {
       setLoading(false);
@@ -66,13 +85,24 @@ export default function RegisterScreen() {
         <View style={styles.form}>
           <Text style={styles.title}>Регистрация</Text>
 
-          <TextInput
-            style={styles.input}
-            placeholder="Имя и фамилия"
-            placeholderTextColor={Colors.textSecondary}
-            value={fullName}
-            onChangeText={setFullName}
-          />
+          <View style={styles.row}>
+            <TextInput
+              style={[styles.input, styles.inputHalf]}
+              placeholder="Имя"
+              placeholderTextColor={Colors.textSecondary}
+              value={firstName}
+              onChangeText={setFirstName}
+              autoCapitalize="words"
+            />
+            <TextInput
+              style={[styles.input, styles.inputHalf]}
+              placeholder="Фамилия"
+              placeholderTextColor={Colors.textSecondary}
+              value={lastName}
+              onChangeText={setLastName}
+              autoCapitalize="words"
+            />
+          </View>
 
           <TextInput
             style={styles.input}
@@ -92,6 +122,8 @@ export default function RegisterScreen() {
             onChangeText={setPassword}
             secureTextEntry
           />
+
+          <PasswordStrengthIndicator password={password} />
 
           <TextInput
             style={styles.input}
@@ -163,6 +195,10 @@ const styles = StyleSheet.create({
     color: Colors.text,
     marginBottom: 20,
   },
+  row: {
+    flexDirection: "row",
+    gap: 12,
+  },
   input: {
     backgroundColor: Colors.inputBg,
     borderRadius: 12,
@@ -170,6 +206,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: Colors.text,
     marginBottom: 12,
+  },
+  inputHalf: {
+    flex: 1,
   },
   button: {
     backgroundColor: Colors.primary,

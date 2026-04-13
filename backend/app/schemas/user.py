@@ -2,12 +2,13 @@
 
 from datetime import date, datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 
 class UserUpdateRequest(BaseModel):
     """Запрос на обновление профиля."""
-    full_name: str | None = Field(None, min_length=2, max_length=150)
+    first_name: str | None = Field(None, min_length=2, max_length=75)
+    last_name: str | None = Field(None, min_length=2, max_length=75)
     phone: str | None = Field(None, max_length=20)
     avatar_url: str | None = Field(None, max_length=500)
     birth_date: date | None = None
@@ -17,14 +18,20 @@ class UserFullResponse(BaseModel):
     """Полный профиль пользователя."""
     id: int
     email: str
-    full_name: str
+    first_name: str
+    last_name: str
     role: str
     phone: str | None = None
     avatar_url: str | None = None
     birth_date: date | None = None
     created_at: datetime
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
+
+    @computed_field
+    @property
+    def full_name(self) -> str:
+        return f"{self.first_name} {self.last_name}".strip()
 
 
 class ProgressResponse(BaseModel):
@@ -35,7 +42,7 @@ class ProgressResponse(BaseModel):
     weak_topics: list[str] = []
     last_activity: datetime
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserProgressResponse(BaseModel):

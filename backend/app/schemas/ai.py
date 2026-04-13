@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ChatMessageRequest(BaseModel):
@@ -18,7 +18,6 @@ class ChatMessageResponse(BaseModel):
     session_id: int
     role: str = "assistant"
     content: str
-    tokens_used: int | None = None
 
 
 class ChatHistoryMessage(BaseModel):
@@ -27,7 +26,7 @@ class ChatHistoryMessage(BaseModel):
     content: str
     created_at: datetime
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ChatHistoryResponse(BaseModel):

@@ -83,8 +83,9 @@ class TestAuthAPI:
         """Успешная регистрация нового пользователя."""
         response = await client.post("/api/v1/auth/register", json={
             "email": "newuser@test.com",
-            "password": "password123",
-            "full_name": "Новый Пользователь",
+            "password": "Password123",
+            "first_name": "Новый",
+            "last_name": "Пользователь",
             "role": "student",
         })
         assert response.status_code == 201
@@ -93,6 +94,8 @@ class TestAuthAPI:
         assert "tokens" in data
         assert data["user"]["email"] == "newuser@test.com"
         assert data["user"]["full_name"] == "Новый Пользователь"
+        assert data["user"]["first_name"] == "Новый"
+        assert data["user"]["last_name"] == "Пользователь"
         assert data["user"]["role"] == "student"
         assert data["tokens"]["token_type"] == "bearer"
 
@@ -101,8 +104,9 @@ class TestAuthAPI:
         """Регистрация с существующим email возвращает 409."""
         response = await client.post("/api/v1/auth/register", json={
             "email": "student@test.com",
-            "password": "password123",
-            "full_name": "Дубликат",
+            "password": "Password123",
+            "first_name": "Дубликат",
+            "last_name": "Тестов",
             "role": "student",
         })
         assert response.status_code == 409
@@ -112,8 +116,9 @@ class TestAuthAPI:
         """Регистрация с невалидным email возвращает 422."""
         response = await client.post("/api/v1/auth/register", json={
             "email": "not-an-email",
-            "password": "password123",
-            "full_name": "Тест",
+            "password": "Password123",
+            "first_name": "Тест",
+            "last_name": "Тестов",
             "role": "student",
         })
         assert response.status_code == 422
@@ -123,8 +128,21 @@ class TestAuthAPI:
         """Регистрация с коротким паролем возвращает 422."""
         response = await client.post("/api/v1/auth/register", json={
             "email": "test@test.com",
-            "password": "123",
-            "full_name": "Тест",
+            "password": "Ab3",
+            "first_name": "Тест",
+            "last_name": "Тестов",
+            "role": "student",
+        })
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_register_password_without_uppercase(self, client: AsyncClient):
+        """Регистрация с паролем без заглавной буквы возвращает 422."""
+        response = await client.post("/api/v1/auth/register", json={
+            "email": "nouppercase@test.com",
+            "password": "password123",
+            "first_name": "Тест",
+            "last_name": "Тестов",
             "role": "student",
         })
         assert response.status_code == 422
@@ -134,7 +152,7 @@ class TestAuthAPI:
         """Успешный вход."""
         response = await client.post("/api/v1/auth/login", json={
             "email": "student@test.com",
-            "password": "password123",
+            "password": "Password123",
         })
         assert response.status_code == 200
         data = response.json()
@@ -156,7 +174,7 @@ class TestAuthAPI:
         """Вход несуществующего пользователя возвращает 401."""
         response = await client.post("/api/v1/auth/login", json={
             "email": "nobody@test.com",
-            "password": "password123",
+            "password": "Password123",
         })
         assert response.status_code == 401
 

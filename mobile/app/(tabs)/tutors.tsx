@@ -1,5 +1,5 @@
 // Экран маркетплейса репетиторов с поиском и фильтрами
-import { useState, useEffect, useCallback } from "react";
+import { memo, useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -11,11 +11,11 @@ import {
   Modal,
   ScrollView,
   Alert,
-  Platform,
 } from "react-native";
 import { useRouter } from "expo-router";
 import api from "../../services/api";
 import { Colors } from "../../constants/theme";
+import { Avatar } from "../../components/Avatar";
 
 type Tutor = {
   id: number;
@@ -53,6 +53,36 @@ const subjectFilters = [
   "Английский",
   "Информатика",
 ];
+
+type TutorCardProps = {
+  tutor: Tutor;
+  onPress: (t: Tutor) => void;
+};
+
+const TutorCard = memo(function TutorCard({ tutor, onPress }: TutorCardProps) {
+  const handlePress = useCallback(() => onPress(tutor), [onPress, tutor]);
+  return (
+    <TouchableOpacity style={styles.card} onPress={handlePress}>
+      <Avatar name={tutor.full_name} size={48} />
+      <View style={styles.info}>
+        <Text style={styles.name}>{tutor.full_name}</Text>
+        <Text style={styles.subjects} numberOfLines={1}>
+          {tutor.subjects.join(", ")}
+        </Text>
+        <View style={styles.meta}>
+          <Text style={styles.rating}>
+            {"\u2B50"} {tutor.rating.toFixed(1)} ({tutor.reviews_count})
+          </Text>
+          <Text style={styles.experience}>{tutor.experience_years} лет опыта</Text>
+        </View>
+      </View>
+      <View style={styles.priceBox}>
+        <Text style={styles.price}>{tutor.price_per_hour} ₽</Text>
+        <Text style={styles.priceLabel}>/ час</Text>
+      </View>
+    </TouchableOpacity>
+  );
+});
 
 export default function TutorsScreen() {
   const router = useRouter();
@@ -113,7 +143,7 @@ export default function TutorsScreen() {
   }, [loadTutors]);
 
   // Загрузка профиля и отзывов репетитора
-  const openTutorProfile = async (tutor: Tutor) => {
+  const openTutorProfile = useCallback(async (tutor: Tutor) => {
     setSelectedTutor(tutor);
     setReviewsLoading(true);
     try {
@@ -124,7 +154,7 @@ export default function TutorsScreen() {
     } finally {
       setReviewsLoading(false);
     }
-  };
+  }, []);
 
   // Отправка отзыва
   const submitReview = async () => {
@@ -206,37 +236,19 @@ export default function TutorsScreen() {
     }
   };
 
-  const loadMore = () => {
+  const loadMore = useCallback(() => {
     if (loadingMore || tutors.length >= total) return;
     loadTutors(page + 1, false);
-  };
+  }, [loadingMore, tutors.length, total, page, loadTutors]);
 
-  // Карточка репетитора
-  const renderTutor = ({ item }: { item: Tutor }) => (
-    <TouchableOpacity style={styles.card} onPress={() => openTutorProfile(item)}>
-      <View style={styles.avatar}>
-        <Text style={styles.avatarText}>
-          {item.full_name.split(" ").map((n) => n[0]).join("")}
-        </Text>
-      </View>
-      <View style={styles.info}>
-        <Text style={styles.name}>{item.full_name}</Text>
-        <Text style={styles.subjects} numberOfLines={1}>
-          {item.subjects.join(", ")}
-        </Text>
-        <View style={styles.meta}>
-          <Text style={styles.rating}>
-            {"\u2B50"} {item.rating.toFixed(1)} ({item.reviews_count})
-          </Text>
-          <Text style={styles.experience}>{item.experience_years} лет опыта</Text>
-        </View>
-      </View>
-      <View style={styles.priceBox}>
-        <Text style={styles.price}>{item.price_per_hour} ₽</Text>
-        <Text style={styles.priceLabel}>/ час</Text>
-      </View>
-    </TouchableOpacity>
+  const renderTutor = useCallback(
+    ({ item }: { item: Tutor }) => (
+      <TutorCard tutor={item} onPress={openTutorProfile} />
+    ),
+    [openTutorProfile],
   );
+
+  const keyExtractor = useCallback((item: Tutor) => item.id.toString(), []);
 
   return (
     <View style={styles.container}>
@@ -284,7 +296,7 @@ export default function TutorsScreen() {
         <FlatList
           data={tutors}
           renderItem={renderTutor}
-          keyExtractor={(item) => item.id.toString()}
+          keyExtractor={keyExtractor}
           contentContainerStyle={styles.listContent}
           onEndReached={loadMore}
           onEndReachedThreshold={0.5}
@@ -317,10 +329,8 @@ export default function TutorsScreen() {
             </View>
 
             <View style={styles.profileHeader}>
-              <View style={styles.profileAvatar}>
-                <Text style={styles.profileAvatarText}>
-                  {selectedTutor.full_name.split(" ").map((n) => n[0]).join("")}
-                </Text>
+              <View style={styles.profileAvatarWrap}>
+                <Avatar name={selectedTutor.full_name} size={80} fontSize={28} />
               </View>
               <Text style={styles.profileName}>{selectedTutor.full_name}</Text>
               {selectedTutor.is_verified && (
@@ -513,15 +523,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
   },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: Colors.primary,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  avatarText: { color: "#fff", fontWeight: "700", fontSize: 16 },
   info: { flex: 1, marginLeft: 12 },
   name: { fontSize: 15, fontWeight: "600", color: Colors.text },
   subjects: { fontSize: 13, color: Colors.textSecondary, marginTop: 2 },
@@ -538,16 +539,7 @@ const styles = StyleSheet.create({
   closeButton: { fontSize: 16, color: Colors.primary, fontWeight: "600" },
 
   profileHeader: { alignItems: "center", paddingVertical: 24, backgroundColor: Colors.surface },
-  profileAvatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: Colors.primary,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  profileAvatarText: { color: "#fff", fontSize: 28, fontWeight: "700" },
+  profileAvatarWrap: { marginBottom: 12 },
   profileName: { fontSize: 22, fontWeight: "700", color: Colors.text },
   verifiedBadge: {
     marginTop: 8,

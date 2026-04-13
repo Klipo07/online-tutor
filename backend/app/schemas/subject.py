@@ -1,6 +1,6 @@
 """Pydantic-схемы для предметов и тем."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class TopicResponse(BaseModel):
@@ -9,7 +9,7 @@ class TopicResponse(BaseModel):
     name: str
     order: int
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class SubjectResponse(BaseModel):
@@ -20,7 +20,7 @@ class SubjectResponse(BaseModel):
     description: str | None = None
     icon: str | None = None
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class SubjectWithTopicsResponse(BaseModel):
@@ -32,4 +32,4 @@ class SubjectWithTopicsResponse(BaseModel):
     icon: str | None = None
     topics: list[TopicResponse] = []
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
