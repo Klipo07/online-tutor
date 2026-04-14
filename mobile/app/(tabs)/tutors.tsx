@@ -41,6 +41,19 @@ type Review = {
   comment: string;
 };
 
+type SlotTime = {
+  time: string;
+  datetime: string;
+  available: boolean;
+};
+
+type SlotDay = {
+  date: string;
+  slots: SlotTime[];
+};
+
+type SubjectRef = { id: number; name: string };
+
 // Доступные предметы для фильтра
 const subjectFilters = [
   "Все",
@@ -105,6 +118,13 @@ export default function TutorsScreen() {
   const [submittingReview, setSubmittingReview] = useState(false);
 
   // Бронирование
+  const [bookingOpen, setBookingOpen] = useState(false);
+  const [slots, setSlots] = useState<SlotDay[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
+  const [subjectCatalog, setSubjectCatalog] = useState<SubjectRef[]>([]);
+  const [selectedSubjectId, setSelectedSubjectId] = useState<number | null>(null);
   const [bookingLoading, setBookingLoading] = useState(false);
 
   const loadTutors = useCallback(async (pageNum: number, reset: boolean) => {
@@ -190,42 +210,73 @@ export default function TutorsScreen() {
     }
   };
 
-  // Бронирование занятия
-  const bookSession = async () => {
+  // Открыть форму записи — закрываем профиль и подгружаем слоты
+  const openBooking = useCallback(async () => {
     if (!selectedTutor) return;
-    setBookingLoading(true);
-
+    setShowReviewForm(false);
+    setBookingOpen(true);
+    setSelectedDate(null);
+    setSelectedSlot(null);
+    setSlots([]);
+    setSlotsLoading(true);
     try {
-      // Бронируем на завтра в 15:00 (в MVP — фиксированное время)
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      tomorrow.setHours(15, 0, 0, 0);
+      const [slotsRes, subjRes] = await Promise.all([
+        api.get(`/tutors/${selectedTutor.id}/slots`, { params: { days: 14 } }),
+        subjectCatalog.length ? Promise.resolve({ data: subjectCatalog }) : api.get("/subjects"),
+      ]);
+      const slotsData: SlotDay[] = slotsRes.data;
+      setSlots(slotsData);
+      if (slotsData.length) setSelectedDate(slotsData[0].date);
 
-      // Берём первый предмет репетитора как subject_id=1 (упрощение для MVP)
+      if (!subjectCatalog.length) {
+        setSubjectCatalog(subjRes.data);
+      }
+      // Подставляем первый предмет репетитора, которому соответствует Subject из каталога
+      const catalog: SubjectRef[] = subjectCatalog.length ? subjectCatalog : subjRes.data;
+      const matched = catalog.find((s) => selectedTutor.subjects.includes(s.name));
+      setSelectedSubjectId(matched?.id ?? catalog[0]?.id ?? null);
+    } catch {
+      Alert.alert("Ошибка", "Не удалось загрузить расписание репетитора");
+      setBookingOpen(false);
+    } finally {
+      setSlotsLoading(false);
+    }
+  }, [selectedTutor, subjectCatalog]);
+
+  // Подтвердить запись
+  const confirmBooking = async () => {
+    if (!selectedTutor || !selectedSlot || !selectedSubjectId) return;
+    setBookingLoading(true);
+    try {
       const res = await api.post("/sessions", {
         tutor_id: selectedTutor.id,
-        subject_id: 1,
-        scheduled_at: tomorrow.toISOString(),
+        subject_id: selectedSubjectId,
+        scheduled_at: selectedSlot,
         duration_minutes: 60,
       });
-
+      const dt = new Date(selectedSlot);
       Alert.alert(
         "Занятие забронировано!",
-        `${selectedTutor.full_name}\n${tomorrow.toLocaleDateString("ru-RU", {
+        `${selectedTutor.full_name}\n${dt.toLocaleDateString("ru-RU", {
           day: "numeric",
           month: "long",
-          hour: "2-digit",
-          minute: "2-digit",
-        })}`,
+        })} в ${dt.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}`,
         [
           {
             text: "Перейти к занятию",
             onPress: () => {
+              setBookingOpen(false);
               setSelectedTutor(null);
               router.push(`/session/${res.data.id}`);
             },
           },
-          { text: "OK" },
+          {
+            text: "Закрыть",
+            onPress: () => {
+              setBookingOpen(false);
+              setSelectedTutor(null);
+            },
+          },
         ]
       );
     } catch (e: any) {
@@ -388,16 +439,8 @@ export default function TutorsScreen() {
             )}
 
             {/* Кнопка записи */}
-            <TouchableOpacity
-              style={[styles.bookButton, bookingLoading && { opacity: 0.6 }]}
-              onPress={bookSession}
-              disabled={bookingLoading}
-            >
-              {bookingLoading ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Text style={styles.bookButtonText}>Записаться на занятие</Text>
-              )}
+            <TouchableOpacity style={styles.bookButton} onPress={openBooking}>
+              <Text style={styles.bookButtonText}>Записаться на занятие</Text>
             </TouchableOpacity>
 
             {/* Отзывы */}
@@ -482,6 +525,153 @@ export default function TutorsScreen() {
             </View>
           </ScrollView>
         )}
+      </Modal>
+
+      {/* Модалка выбора слота для бронирования */}
+      <Modal
+        visible={bookingOpen}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setBookingOpen(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={() => setBookingOpen(false)}>
+              <Text style={styles.closeButton}>Закрыть</Text>
+            </TouchableOpacity>
+          </View>
+
+          {slotsLoading ? (
+            <View style={styles.centered}>
+              <ActivityIndicator size="large" color={Colors.primary} />
+            </View>
+          ) : (
+            <ScrollView contentContainerStyle={{ padding: 16 }}>
+              <Text style={styles.bookingTitle}>Запись к {selectedTutor?.full_name ?? ""}</Text>
+
+              {/* Предмет */}
+              {selectedTutor && selectedTutor.subjects.length > 0 && (
+                <>
+                  <Text style={styles.bookingSection}>Предмет</Text>
+                  <View style={styles.chipsRow}>
+                    {subjectCatalog
+                      .filter((s) => selectedTutor.subjects.includes(s.name))
+                      .map((s) => (
+                        <TouchableOpacity
+                          key={s.id}
+                          style={[
+                            styles.chip,
+                            selectedSubjectId === s.id && styles.chipActive,
+                          ]}
+                          onPress={() => setSelectedSubjectId(s.id)}
+                        >
+                          <Text
+                            style={[
+                              styles.chipText,
+                              selectedSubjectId === s.id && styles.chipTextActive,
+                            ]}
+                          >
+                            {s.name}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                  </View>
+                </>
+              )}
+
+              {/* Дата */}
+              <Text style={styles.bookingSection}>Дата</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  {slots.map((day) => {
+                    const d = new Date(day.date);
+                    const isSel = selectedDate === day.date;
+                    return (
+                      <TouchableOpacity
+                        key={day.date}
+                        style={[styles.dateChip, isSel && styles.dateChipActive]}
+                        onPress={() => {
+                          setSelectedDate(day.date);
+                          setSelectedSlot(null);
+                        }}
+                      >
+                        <Text
+                          style={[
+                            styles.dateDay,
+                            isSel && { color: "#fff" },
+                          ]}
+                        >
+                          {d.toLocaleDateString("ru-RU", { weekday: "short" })}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.dateNum,
+                            isSel && { color: "#fff" },
+                          ]}
+                        >
+                          {d.getDate()}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </ScrollView>
+
+              {/* Время */}
+              <Text style={styles.bookingSection}>Время</Text>
+              <View style={styles.slotsGrid}>
+                {(slots.find((d) => d.date === selectedDate)?.slots ?? []).map((s) => {
+                  const isSel = selectedSlot === s.datetime;
+                  return (
+                    <TouchableOpacity
+                      key={s.datetime}
+                      disabled={!s.available}
+                      onPress={() => setSelectedSlot(s.datetime)}
+                      style={[
+                        styles.slotChip,
+                        !s.available && styles.slotChipDisabled,
+                        isSel && styles.slotChipActive,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.slotText,
+                          !s.available && styles.slotTextDisabled,
+                          isSel && { color: "#fff" },
+                        ]}
+                      >
+                        {s.time}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* Итог + цена */}
+              {selectedTutor && (
+                <View style={styles.bookingSummary}>
+                  <Text style={styles.summaryLabel}>Стоимость</Text>
+                  <Text style={styles.summaryPrice}>{selectedTutor.price_per_hour} ₽</Text>
+                </View>
+              )}
+
+              <TouchableOpacity
+                style={[
+                  styles.bookButton,
+                  (!selectedSlot || !selectedSubjectId || bookingLoading) && { opacity: 0.5 },
+                ]}
+                onPress={confirmBooking}
+                disabled={!selectedSlot || !selectedSubjectId || bookingLoading}
+              >
+                {bookingLoading ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={styles.bookButtonText}>Подтвердить запись</Text>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          )}
+        </View>
       </Modal>
     </View>
   );
@@ -636,4 +826,63 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   submitReviewText: { color: "#fff", fontSize: 14, fontWeight: "600" },
+
+  // Бронирование — выбор слота
+  bookingTitle: { fontSize: 18, fontWeight: "700", color: Colors.text, marginBottom: 4 },
+  bookingSection: { fontSize: 13, fontWeight: "700", color: Colors.textSecondary, marginTop: 18, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.3 },
+  chipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 18,
+    backgroundColor: Colors.inputBg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  chipActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  chipText: { color: Colors.text, fontSize: 13, fontWeight: "500" },
+  chipTextActive: { color: "#fff" },
+  dateChip: {
+    alignItems: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    minWidth: 56,
+  },
+  dateChipActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  dateDay: { fontSize: 11, color: Colors.textSecondary, textTransform: "uppercase" },
+  dateNum: { fontSize: 18, fontWeight: "700", color: Colors.text, marginTop: 2 },
+  slotsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  slotChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    minWidth: 70,
+    alignItems: "center",
+  },
+  slotChipActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  slotChipDisabled: { opacity: 0.35 },
+  slotText: { fontSize: 14, fontWeight: "600", color: Colors.text },
+  slotTextDisabled: { textDecorationLine: "line-through" },
+  bookingSummary: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 24,
+    padding: 14,
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+  },
+  summaryLabel: { fontSize: 14, color: Colors.textSecondary },
+  summaryPrice: { fontSize: 20, fontWeight: "800", color: Colors.primary },
 });

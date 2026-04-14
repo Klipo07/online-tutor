@@ -18,6 +18,7 @@ from app.services.tutor_service import (
     create_review,
     get_reviews,
 )
+from app.services.session_service import get_tutor_slots
 
 router = APIRouter()
 
@@ -91,6 +92,19 @@ async def add_review(
         rating=review.rating,
         comment=review.comment,
     )
+
+
+@router.get("/{tutor_id}/slots")
+async def tutor_slots(
+    tutor_id: int,
+    days: int = Query(14, ge=1, le=30),
+    db: AsyncSession = Depends(get_db),
+):
+    """Свободные слоты репетитора на N дней вперёд (по часу, 9:00–21:00)."""
+    try:
+        return await get_tutor_slots(db, tutor_id, days=days)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
 @router.get("/{tutor_id}/reviews", response_model=list[ReviewResponse])

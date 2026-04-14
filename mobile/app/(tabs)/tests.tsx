@@ -1,5 +1,5 @@
-// Экран тестов
-import { useState } from "react";
+// Банк тестов — ЕГЭ / ОГЭ / Обычные. Каскадный выбор + прохождение.
+import { useCallback, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -12,101 +12,460 @@ import {
 import api from "../../services/api";
 import { Colors } from "../../constants/theme";
 
+type ExamType = "ege" | "oge" | "regular";
+type Difficulty = "easy" | "medium" | "hard";
+
+type SubjectItem = { id: number; name: string; tests_count: number };
+type TaskNumberItem = { task_number: number; count: number };
+type TestListItem = {
+  id: number;
+  subject_id: number;
+  topic: string;
+  exam_type: ExamType;
+  task_number: number | null;
+  difficulty: Difficulty;
+  questions_count: number;
+};
 type Question = {
   id: number;
   question: string;
   options: string[] | null;
   type: string;
 };
-
-type TestState = {
-  test_id: number;
+type FullTest = {
+  id: number;
+  subject_id: number;
+  topic: string;
+  exam_type: ExamType;
+  task_number: number | null;
+  difficulty: Difficulty;
   questions: Question[];
 };
 
+type Stage =
+  | "exam"
+  | "subject"
+  | "task"
+  | "difficulty"
+  | "list"
+  | "loading"
+  | "running"
+  | "result";
+
+const EXAM_LABELS: Record<ExamType, string> = {
+  ege: "ЕГЭ",
+  oge: "ОГЭ",
+  regular: "Обычный",
+};
+
+const DIFFICULTY_LABELS: Record<Difficulty, string> = {
+  easy: "Лёгкий",
+  medium: "Средний",
+  hard: "Сложный",
+};
+
 export default function TestsScreen() {
-  const [test, setTest] = useState<TestState | null>(null);
+  const [stage, setStage] = useState<Stage>("exam");
+
+  const [examType, setExamType] = useState<ExamType | null>(null);
+  const [subject, setSubject] = useState<SubjectItem | null>(null);
+  const [taskNumber, setTaskNumber] = useState<number | null>(null);
+  const [difficulty, setDifficulty] = useState<Difficulty | null>(null);
+
+  const [subjects, setSubjects] = useState<SubjectItem[]>([]);
+  const [taskNumbers, setTaskNumbers] = useState<TaskNumberItem[]>([]);
+  const [tests, setTests] = useState<TestListItem[]>([]);
+
+  const [currentTest, setCurrentTest] = useState<FullTest | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [result, setResult] = useState<any>(null);
+
   const [loading, setLoading] = useState(false);
-  const [generating, setGenerating] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
-  const subjects = [
-    { name: "Математика", topic: "Квадратные уравнения" },
-    { name: "Русский язык", topic: "Правописание" },
-    { name: "Физика", topic: "Механика" },
-    { name: "История", topic: "Великая Отечественная война" },
-  ];
-
-  const generateTest = async (subject: string, topic: string) => {
-    setGenerating(true);
-    setTest(null);
-    setResult(null);
+  const resetAll = useCallback(() => {
+    setStage("exam");
+    setExamType(null);
+    setSubject(null);
+    setTaskNumber(null);
+    setDifficulty(null);
+    setSubjects([]);
+    setTaskNumbers([]);
+    setTests([]);
+    setCurrentTest(null);
     setAnswers({});
-    try {
-      const res = await api.post("/ai/generate-test", {
-        subject,
-        topic,
-        difficulty: "medium",
-        num_questions: 5,
-      });
-      setTest({ test_id: res.data.test_id, questions: res.data.questions });
-    } catch {
-      Alert.alert("Ошибка", "Не удалось сгенерировать тест");
-    } finally {
-      setGenerating(false);
-    }
-  };
+    setResult(null);
+  }, []);
 
-  const submitTest = async () => {
-    if (!test) return;
+  const goBack = useCallback(() => {
+    if (stage === "subject") {
+      setStage("exam");
+      setExamType(null);
+    } else if (stage === "task") {
+      setStage("subject");
+      setSubject(null);
+    } else if (stage === "difficulty") {
+      setStage("task");
+      setTaskNumber(null);
+    } else if (stage === "list") {
+      setStage("difficulty");
+      setDifficulty(null);
+    } else if (stage === "running" || stage === "result") {
+      setCurrentTest(null);
+      setAnswers({});
+      setResult(null);
+      setStage("list");
+    }
+  }, [stage]);
+
+  // Шаг: Выбор экзамена → загрузка предметов
+  const pickExam = useCallback(async (type: ExamType) => {
+    setExamType(type);
     setLoading(true);
     try {
-      const res = await api.post("/ai/submit-test", {
-        test_id: test.test_id,
-        answers,
+      const res = await api.get("/tests/subjects-with-tests", {
+        params: { exam_type: type },
       });
-      setResult(res.data);
+      setSubjects(res.data);
+      setStage("subject");
     } catch {
-      Alert.alert("Ошибка", "Не удалось отправить ответы");
+      Alert.alert("Ошибка", "Не удалось загрузить предметы");
+      setExamType(null);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  // Выбор предмета
-  if (!test && !generating) {
+  // Шаг: Выбор предмета → загрузка номеров заданий
+  const pickSubject = useCallback(
+    async (s: SubjectItem) => {
+      if (!examType) return;
+      setSubject(s);
+      setLoading(true);
+      try {
+        const res = await api.get("/tests/task-numbers", {
+          params: { subject_id: s.id, exam_type: examType },
+        });
+        setTaskNumbers(res.data);
+        setStage("task");
+      } catch {
+        Alert.alert("Ошибка", "Не удалось загрузить задания");
+        setSubject(null);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [examType]
+  );
+
+  // Шаг: Выбор задания → переход к сложности
+  const pickTaskNumber = useCallback((n: number | null) => {
+    setTaskNumber(n);
+    setStage("difficulty");
+  }, []);
+
+  // Шаг: Выбор сложности → загрузка тестов
+  const pickDifficulty = useCallback(
+    async (d: Difficulty | null) => {
+      if (!examType || !subject) return;
+      setDifficulty(d);
+      setLoading(true);
+      try {
+        const params: Record<string, any> = {
+          subject_id: subject.id,
+          exam_type: examType,
+          limit: 50,
+        };
+        if (taskNumber !== null) params.task_number = taskNumber;
+        if (d) params.difficulty = d;
+
+        const res = await api.get("/tests", { params });
+        setTests(res.data);
+        setStage("list");
+      } catch {
+        Alert.alert("Ошибка", "Не удалось загрузить тесты");
+        setDifficulty(null);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [examType, subject, taskNumber]
+  );
+
+  // Открыть тест → загрузить вопросы
+  const openTest = useCallback(async (t: TestListItem) => {
+    setLoading(true);
+    setStage("loading");
+    try {
+      const res = await api.get(`/tests/${t.id}`);
+      setCurrentTest(res.data);
+      setAnswers({});
+      setStage("running");
+    } catch {
+      Alert.alert("Ошибка", "Не удалось загрузить тест");
+      setStage("list");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const submitTest = useCallback(async () => {
+    if (!currentTest) return;
+    setSubmitting(true);
+    try {
+      const res = await api.post("/ai/submit-test", {
+        test_id: currentTest.id,
+        answers,
+      });
+      setResult(res.data);
+      setStage("result");
+    } catch {
+      Alert.alert("Ошибка", "Не удалось отправить ответы");
+    } finally {
+      setSubmitting(false);
+    }
+  }, [currentTest, answers]);
+
+  const breadcrumb = useMemo(() => {
+    const parts: string[] = [];
+    if (examType) parts.push(EXAM_LABELS[examType]);
+    if (subject) parts.push(subject.name);
+    if (taskNumber !== null) parts.push(`№${taskNumber}`);
+    if (difficulty) parts.push(DIFFICULTY_LABELS[difficulty]);
+    return parts.join(" · ");
+  }, [examType, subject, taskNumber, difficulty]);
+
+  if (loading && stage !== "running") {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+      </View>
+    );
+  }
+
+  // === Шаг 1: Выбор формата ===
+  if (stage === "exam") {
     return (
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        <Text style={styles.title}>Выберите тест</Text>
-        <Text style={styles.subtitle}>AI сгенерирует тест специально для вас</Text>
+        <Text style={styles.title}>Банк тестов</Text>
+        <Text style={styles.subtitle}>Выберите формат экзамена</Text>
 
-        {subjects.map((s) => (
+        {(["ege", "oge", "regular"] as ExamType[]).map((t) => (
           <TouchableOpacity
-            key={s.name}
-            style={styles.subjectCard}
-            onPress={() => generateTest(s.name, s.topic)}
+            key={t}
+            style={styles.bigCard}
+            onPress={() => pickExam(t)}
           >
-            <Text style={styles.subjectName}>{s.name}</Text>
-            <Text style={styles.subjectTopic}>{s.topic}</Text>
+            <Text style={styles.bigCardTitle}>{EXAM_LABELS[t]}</Text>
+            <Text style={styles.bigCardHint}>
+              {t === "ege"
+                ? "Единый государственный экзамен"
+                : t === "oge"
+                ? "Основной государственный экзамен"
+                : "Тренировочные задания"}
+            </Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
     );
   }
 
-  // Генерация
-  if (generating) {
+  // === Шаг 2: Выбор предмета ===
+  if (stage === "subject") {
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        <TouchableOpacity onPress={goBack}>
+          <Text style={styles.backLink}>← Назад</Text>
+        </TouchableOpacity>
+        <Text style={styles.crumb}>{breadcrumb}</Text>
+        <Text style={styles.title}>Предмет</Text>
+
+        {subjects.length === 0 ? (
+          <Text style={styles.empty}>
+            Пока нет тестов. Попробуйте другой формат.
+          </Text>
+        ) : (
+          subjects.map((s) => (
+            <TouchableOpacity
+              key={s.id}
+              style={styles.row}
+              onPress={() => pickSubject(s)}
+            >
+              <Text style={styles.rowTitle}>{s.name}</Text>
+              <Text style={styles.rowHint}>{s.tests_count} тестов</Text>
+            </TouchableOpacity>
+          ))
+        )}
+      </ScrollView>
+    );
+  }
+
+  // === Шаг 3: Номер задания ===
+  if (stage === "task") {
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        <TouchableOpacity onPress={goBack}>
+          <Text style={styles.backLink}>← Назад</Text>
+        </TouchableOpacity>
+        <Text style={styles.crumb}>{breadcrumb}</Text>
+        <Text style={styles.title}>Номер задания</Text>
+
+        <TouchableOpacity style={styles.row} onPress={() => pickTaskNumber(null)}>
+          <Text style={styles.rowTitle}>Любое задание</Text>
+          <Text style={styles.rowHint}>Все доступные номера</Text>
+        </TouchableOpacity>
+
+        {taskNumbers.map((t) => (
+          <TouchableOpacity
+            key={t.task_number}
+            style={styles.row}
+            onPress={() => pickTaskNumber(t.task_number)}
+          >
+            <Text style={styles.rowTitle}>Задание №{t.task_number}</Text>
+            <Text style={styles.rowHint}>{t.count} тестов</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    );
+  }
+
+  // === Шаг 4: Сложность ===
+  if (stage === "difficulty") {
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        <TouchableOpacity onPress={goBack}>
+          <Text style={styles.backLink}>← Назад</Text>
+        </TouchableOpacity>
+        <Text style={styles.crumb}>{breadcrumb}</Text>
+        <Text style={styles.title}>Сложность</Text>
+
+        <TouchableOpacity style={styles.row} onPress={() => pickDifficulty(null)}>
+          <Text style={styles.rowTitle}>Любая</Text>
+        </TouchableOpacity>
+        {(["easy", "medium", "hard"] as Difficulty[]).map((d) => (
+          <TouchableOpacity
+            key={d}
+            style={styles.row}
+            onPress={() => pickDifficulty(d)}
+          >
+            <Text style={styles.rowTitle}>{DIFFICULTY_LABELS[d]}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    );
+  }
+
+  // === Шаг 5: Список тестов ===
+  if (stage === "list") {
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        <TouchableOpacity onPress={goBack}>
+          <Text style={styles.backLink}>← Назад</Text>
+        </TouchableOpacity>
+        <Text style={styles.crumb}>{breadcrumb}</Text>
+        <Text style={styles.title}>Тесты ({tests.length})</Text>
+
+        {tests.length === 0 ? (
+          <>
+            <Text style={styles.empty}>
+              Нет тестов под эти фильтры. Попробуйте другую сложность или номер задания.
+            </Text>
+            <TouchableOpacity style={styles.secondaryBtn} onPress={resetAll}>
+              <Text style={styles.secondaryBtnText}>Начать сначала</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          tests.map((t) => (
+            <TouchableOpacity
+              key={t.id}
+              style={styles.row}
+              onPress={() => openTest(t)}
+            >
+              <Text style={styles.rowTitle}>{t.topic}</Text>
+              <Text style={styles.rowHint}>
+                {t.task_number ? `№${t.task_number} · ` : ""}
+                {DIFFICULTY_LABELS[t.difficulty]} · {t.questions_count} вопросов
+              </Text>
+            </TouchableOpacity>
+          ))
+        )}
+      </ScrollView>
+    );
+  }
+
+  // === Загрузка теста ===
+  if (stage === "loading") {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" color={Colors.primary} />
-        <Text style={styles.loadingText}>AI генерирует тест...</Text>
+        <Text style={styles.loadingText}>Загрузка теста...</Text>
       </View>
     );
   }
 
-  // Результат
-  if (result) {
+  // === Прохождение теста ===
+  if (stage === "running" && currentTest) {
+    const allAnswered =
+      Object.keys(answers).length === currentTest.questions.length;
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        <TouchableOpacity onPress={goBack}>
+          <Text style={styles.backLink}>← Выйти</Text>
+        </TouchableOpacity>
+        <Text style={styles.crumb}>{breadcrumb}</Text>
+        <Text style={styles.title}>{currentTest.topic}</Text>
+
+        {currentTest.questions.map((q) => (
+          <View key={q.id} style={styles.questionCard}>
+            <Text style={styles.questionText}>
+              {q.id}. {q.question}
+            </Text>
+            {q.options?.map((opt) => (
+              <TouchableOpacity
+                key={opt}
+                style={[
+                  styles.optionButton,
+                  answers[String(q.id)] === opt && styles.optionSelected,
+                ]}
+                onPress={() =>
+                  setAnswers((prev) => ({ ...prev, [String(q.id)]: opt }))
+                }
+              >
+                <Text
+                  style={[
+                    styles.optionText,
+                    answers[String(q.id)] === opt && styles.optionTextSelected,
+                  ]}
+                >
+                  {opt}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        ))}
+
+        <TouchableOpacity
+          style={[
+            styles.button,
+            (submitting || !allAnswered) && styles.buttonDisabled,
+          ]}
+          onPress={submitTest}
+          disabled={submitting || !allAnswered}
+        >
+          <Text style={styles.buttonText}>
+            {submitting
+              ? "Проверяю..."
+              : allAnswered
+              ? "Отправить ответы"
+              : `Ответьте на все вопросы (${Object.keys(answers).length}/${currentTest.questions.length})`}
+          </Text>
+        </TouchableOpacity>
+      </ScrollView>
+    );
+  }
+
+  // === Результат ===
+  if (stage === "result" && result) {
     return (
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
         <Text style={styles.title}>Результат</Text>
@@ -117,61 +476,37 @@ export default function TestsScreen() {
           </Text>
         </View>
         <Text style={styles.feedback}>{result.feedback}</Text>
-        <TouchableOpacity
-          style={styles.button}
-          onPress={() => { setTest(null); setResult(null); setAnswers({}); }}
-        >
+
+        {result.details?.map((d: any, i: number) => (
+          <View
+            key={i}
+            style={[
+              styles.detailCard,
+              d.is_correct ? styles.detailOk : styles.detailFail,
+            ]}
+          >
+            <Text style={styles.detailQuestion}>
+              {i + 1}. {d.question}
+            </Text>
+            <Text style={styles.detailLine}>
+              Ваш ответ: <Text style={styles.detailAnswer}>{d.your_answer || "—"}</Text>
+            </Text>
+            {!d.is_correct && (
+              <Text style={styles.detailLine}>
+                Правильный: <Text style={styles.detailCorrect}>{d.correct_answer}</Text>
+              </Text>
+            )}
+          </View>
+        ))}
+
+        <TouchableOpacity style={styles.button} onPress={resetAll}>
           <Text style={styles.buttonText}>Пройти ещё тест</Text>
         </TouchableOpacity>
       </ScrollView>
     );
   }
 
-  // Тест
-  return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Тест</Text>
-
-      {test?.questions.map((q) => (
-        <View key={q.id} style={styles.questionCard}>
-          <Text style={styles.questionText}>
-            {q.id}. {q.question}
-          </Text>
-          {q.options?.map((opt) => (
-            <TouchableOpacity
-              key={opt}
-              style={[
-                styles.optionButton,
-                answers[String(q.id)] === opt && styles.optionSelected,
-              ]}
-              onPress={() =>
-                setAnswers((prev) => ({ ...prev, [String(q.id)]: opt }))
-              }
-            >
-              <Text
-                style={[
-                  styles.optionText,
-                  answers[String(q.id)] === opt && styles.optionTextSelected,
-                ]}
-              >
-                {opt}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      ))}
-
-      <TouchableOpacity
-        style={[styles.button, loading && styles.buttonDisabled]}
-        onPress={submitTest}
-        disabled={loading}
-      >
-        <Text style={styles.buttonText}>
-          {loading ? "Проверяю..." : "Отправить ответы"}
-        </Text>
-      </TouchableOpacity>
-    </ScrollView>
-  );
+  return null;
 }
 
 const styles = StyleSheet.create({
@@ -180,16 +515,39 @@ const styles = StyleSheet.create({
   centered: { flex: 1, justifyContent: "center", alignItems: "center" },
   title: { fontSize: 24, fontWeight: "700", color: Colors.text, marginBottom: 8 },
   subtitle: { fontSize: 14, color: Colors.textSecondary, marginBottom: 20 },
-  subjectCard: {
+  crumb: { fontSize: 12, color: Colors.textSecondary, marginBottom: 4 },
+  backLink: {
+    fontSize: 14,
+    color: Colors.primary,
+    fontWeight: "600",
+    marginBottom: 12,
+  },
+  empty: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    textAlign: "center",
+    marginVertical: 32,
+  },
+  bigCard: {
     backgroundColor: Colors.surface,
     borderRadius: 12,
-    padding: 16,
+    padding: 20,
     marginBottom: 12,
     borderWidth: 1,
     borderColor: Colors.border,
   },
-  subjectName: { fontSize: 16, fontWeight: "600", color: Colors.text },
-  subjectTopic: { fontSize: 13, color: Colors.textSecondary, marginTop: 4 },
+  bigCardTitle: { fontSize: 20, fontWeight: "700", color: Colors.text },
+  bigCardHint: { fontSize: 13, color: Colors.textSecondary, marginTop: 4 },
+  row: {
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  rowTitle: { fontSize: 16, fontWeight: "600", color: Colors.text },
+  rowHint: { fontSize: 13, color: Colors.textSecondary, marginTop: 4 },
   loadingText: { marginTop: 16, fontSize: 16, color: Colors.textSecondary },
   questionCard: {
     backgroundColor: Colors.surface,
@@ -199,7 +557,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
   },
-  questionText: { fontSize: 15, fontWeight: "600", color: Colors.text, marginBottom: 12 },
+  questionText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: Colors.text,
+    marginBottom: 12,
+  },
   optionButton: {
     backgroundColor: Colors.inputBg,
     borderRadius: 8,
@@ -219,6 +582,13 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: { opacity: 0.6 },
   buttonText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  secondaryBtn: {
+    backgroundColor: Colors.inputBg,
+    borderRadius: 12,
+    padding: 14,
+    alignItems: "center",
+  },
+  secondaryBtnText: { color: Colors.text, fontSize: 15, fontWeight: "600" },
   scoreCard: {
     backgroundColor: Colors.primary,
     borderRadius: 16,
@@ -228,5 +598,33 @@ const styles = StyleSheet.create({
   },
   scoreNumber: { fontSize: 48, fontWeight: "800", color: "#fff" },
   scoreLabel: { fontSize: 16, color: "rgba(255,255,255,0.9)", marginTop: 4 },
-  feedback: { fontSize: 15, color: Colors.text, lineHeight: 22, marginBottom: 16 },
+  feedback: {
+    fontSize: 15,
+    color: Colors.text,
+    lineHeight: 22,
+    marginBottom: 16,
+  },
+  detailCard: {
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+  },
+  detailOk: {
+    backgroundColor: "#ECFDF5",
+    borderColor: "#A7F3D0",
+  },
+  detailFail: {
+    backgroundColor: "#FEF2F2",
+    borderColor: "#FECACA",
+  },
+  detailQuestion: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: Colors.text,
+    marginBottom: 6,
+  },
+  detailLine: { fontSize: 13, color: Colors.text, marginTop: 2 },
+  detailAnswer: { fontWeight: "600", color: Colors.text },
+  detailCorrect: { fontWeight: "700", color: Colors.success },
 });

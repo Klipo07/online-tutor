@@ -30,6 +30,7 @@ class User(Base):
     first_name: Mapped[str] = mapped_column(String(75))
     last_name: Mapped[str] = mapped_column(String(75))
     avatar_url: Mapped[str | None] = mapped_column(String(500))
+    bio: Mapped[str | None] = mapped_column(String(500))
     birth_date: Mapped[date | None] = mapped_column(Date)
     is_active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

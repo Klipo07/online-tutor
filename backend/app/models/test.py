@@ -16,14 +16,25 @@ class Difficulty(str, enum.Enum):
     hard = "hard"
 
 
+class ExamType(str, enum.Enum):
+    """Формат теста — ЕГЭ, ОГЭ или обычный."""
+    ege = "ege"
+    oge = "oge"
+    regular = "regular"
+
+
 class Test(Base):
     """Тест, сгенерированный AI или созданный вручную."""
     __tablename__ = "tests"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"))
+    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"), index=True)
     topic: Mapped[str] = mapped_column(String(300))
     difficulty: Mapped[Difficulty] = mapped_column(Enum(Difficulty), default=Difficulty.medium)
+    exam_type: Mapped[ExamType] = mapped_column(
+        Enum(ExamType), default=ExamType.regular, index=True
+    )
+    task_number: Mapped[int | None] = mapped_column(Integer, index=True)
     questions: Mapped[dict] = mapped_column(JSON)
     created_by_ai: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

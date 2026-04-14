@@ -11,6 +11,8 @@ type User = {
   full_name: string;
   role: string;
   avatar_url: string | null;
+  bio?: string | null;
+  phone?: string | null;
 };
 
 type AuthState = {
@@ -27,6 +29,7 @@ type AuthState = {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
+  setUser: (user: User) => void;
 };
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -60,6 +63,8 @@ export const useAuthStore = create<AuthState>((set) => ({
     await AsyncStorage.multiRemove(["access_token", "refresh_token"]);
     set({ user: null, isAuth: false });
   },
+
+  setUser: (user) => set({ user }),
 
   checkAuth: async () => {
     try {

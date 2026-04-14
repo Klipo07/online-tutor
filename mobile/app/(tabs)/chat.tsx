@@ -1,5 +1,5 @@
 // Экран AI-чата с тьютором
-import { memo, useState, useRef, useCallback } from "react";
+import { memo, useState, useRef, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -7,11 +7,12 @@ import {
   TouchableOpacity,
   StyleSheet,
   FlatList,
-  KeyboardAvoidingView,
-  Platform,
   ActivityIndicator,
 } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useLocalSearchParams } from "expo-router";
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+import { useHeaderHeight } from "@react-navigation/elements";
 import api from "../../services/api";
 import { Colors } from "../../constants/theme";
 
@@ -20,6 +21,29 @@ type Message = {
   role: "user" | "assistant";
   content: string;
 };
+
+const SUBJECT_ICONS: Record<string, string> = {
+  "Математика": "📐",
+  "Русский язык": "📖",
+  "Физика": "⚡",
+  "Химия": "🧪",
+  "Биология": "🧬",
+  "История": "🏛️",
+  "Обществознание": "⚖️",
+  "Английский": "🇬🇧",
+  "Английский язык": "🇬🇧",
+  "Информатика": "💻",
+  "География": "🌍",
+  "Литература": "📚",
+};
+
+const buildWelcome = (subject?: string): Message => ({
+  id: "welcome",
+  role: "assistant",
+  content: subject
+    ? `Привет! Я AI-тьютор по предмету «${subject}». Задавай любой вопрос — помогу разобраться!`
+    : "Привет! Я твой персональный AI-тьютор. Выбери предмет на главной или просто задай вопрос!",
+});
 
 const MessageBubble = memo(function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === "user";
@@ -32,20 +56,30 @@ const MessageBubble = memo(function MessageBubble({ message }: { message: Messag
 });
 
 export default function ChatScreen() {
-  const { subject } = useLocalSearchParams<{ subject?: string }>();
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      content: subject
-        ? `Привет! Я твой AI-тьютор по предмету "${subject}". Задавай вопросы — помогу разобраться!`
-        : "Привет! Я твой персональный AI-тьютор. Выбери предмет на главной или просто задай вопрос!",
-    },
-  ]);
+  const { subject: subjectParam } = useLocalSearchParams<{ subject?: string }>();
+  const tabBarHeight = useBottomTabBarHeight();
+  const headerHeight = useHeaderHeight();
+  const [subject, setSubject] = useState<string | undefined>(subjectParam);
+  const [messages, setMessages] = useState<Message[]>([buildWelcome(subjectParam)]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [sessionId, setSessionId] = useState<number | null>(null);
   const flatListRef = useRef<FlatList>(null);
+
+  // При смене предмета через навигацию — стартуем новую сессию, чтобы AI не путался
+  useEffect(() => {
+    if (subjectParam !== subject) {
+      setSubject(subjectParam);
+      setSessionId(null);
+      setMessages([buildWelcome(subjectParam)]);
+    }
+  }, [subjectParam]);
+
+  const clearSubject = useCallback(() => {
+    setSubject(undefined);
+    setSessionId(null);
+    setMessages([buildWelcome(undefined)]);
+  }, []);
 
   const sendMessage = async () => {
     const text = input.trim();
@@ -100,12 +134,28 @@ export default function ChatScreen() {
     [],
   );
 
+  const placeholder = subject
+    ? `Задайте любой вопрос по предмету «${subject}»`
+    : "Задайте вопрос...";
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={90}
+      behavior="padding"
+      keyboardVerticalOffset={headerHeight + tabBarHeight}
     >
+      {subject && (
+        <View style={styles.subjectBar}>
+          <View style={styles.subjectBadge}>
+            <Text style={styles.subjectIcon}>{SUBJECT_ICONS[subject] ?? "📚"}</Text>
+            <Text style={styles.subjectText}>{subject}</Text>
+            <TouchableOpacity onPress={clearSubject} hitSlop={8} style={styles.clearBtn}>
+              <Text style={styles.clearText}>×</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
       <FlatList
         ref={flatListRef}
         data={messages}
@@ -125,7 +175,7 @@ export default function ChatScreen() {
       <View style={styles.inputContainer}>
         <TextInput
           style={styles.input}
-          placeholder="Задайте вопрос..."
+          placeholder={placeholder}
           placeholderTextColor={Colors.textSecondary}
           value={input}
           onChangeText={setInput}
@@ -152,6 +202,48 @@ const styles = StyleSheet.create({
   messagesList: {
     padding: 16,
     paddingBottom: 8,
+  },
+  subjectBar: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 4,
+    backgroundColor: Colors.background,
+  },
+  subjectBadge: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    borderRadius: 20,
+    paddingVertical: 6,
+    paddingLeft: 10,
+    paddingRight: 6,
+    gap: 6,
+  },
+  subjectIcon: {
+    fontSize: 15,
+  },
+  subjectText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: Colors.primary,
+  },
+  clearBtn: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: Colors.primary,
+    justifyContent: "center",
+    alignItems: "center",
+    marginLeft: 2,
+  },
+  clearText: {
+    color: "#fff",
+    fontSize: 16,
+    lineHeight: 18,
+    fontWeight: "700",
   },
   messageBubble: {
     maxWidth: "80%",

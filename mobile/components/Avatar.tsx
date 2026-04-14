@@ -1,13 +1,16 @@
-// Переиспользуемый аватар с инициалами
+// Переиспользуемый аватар с инициалами или картинкой
 import { memo, useMemo } from "react";
-import { View, Text, StyleSheet } from "react-native";
-import { Colors } from "../constants/theme";
+import { View, Text, Image, StyleSheet } from "react-native";
+import { Colors, API_URL } from "../constants/theme";
 
 type Props = {
   name: string;
+  url?: string | null;
   size?: number;
   fontSize?: number;
 };
+
+const API_HOST = API_URL.replace(/\/api\/v1\/?$/, "");
 
 function getInitials(name: string): string {
   return name
@@ -19,16 +22,26 @@ function getInitials(name: string): string {
     .toUpperCase();
 }
 
-function AvatarComponent({ name, size = 48, fontSize }: Props) {
+function resolveAvatarUrl(url?: string | null): string | null {
+  if (!url) return null;
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  return `${API_HOST}${url}`;
+}
+
+function AvatarComponent({ name, url, size = 48, fontSize }: Props) {
   const initials = useMemo(() => getInitials(name), [name]);
+  const src = useMemo(() => resolveAvatarUrl(url), [url]);
   const textSize = fontSize ?? Math.round(size / 3);
+  const wrap = [styles.avatar, { width: size, height: size, borderRadius: size / 2 }];
+  if (src) {
+    return (
+      <View style={wrap}>
+        <Image source={{ uri: src }} style={{ width: size, height: size, borderRadius: size / 2 }} />
+      </View>
+    );
+  }
   return (
-    <View
-      style={[
-        styles.avatar,
-        { width: size, height: size, borderRadius: size / 2 },
-      ]}
-    >
+    <View style={wrap}>
       <Text style={[styles.text, { fontSize: textSize }]}>{initials}</Text>
     </View>
   );
@@ -41,6 +54,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     justifyContent: "center",
     alignItems: "center",
+    overflow: "hidden",
   },
   text: { color: "#fff", fontWeight: "700" },
 });

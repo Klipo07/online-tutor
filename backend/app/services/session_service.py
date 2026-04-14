@@ -131,6 +131,56 @@ async def get_session_by_id(
     return result.unique().scalar_one_or_none()
 
 
+async def get_tutor_slots(
+    db: AsyncSession,
+    tutor_id: int,
+    days: int = 14,
+) -> list[dict]:
+    """Вернуть свободные слоты репетитора на N дней вперёд.
+
+    Простая эвристика MVP: рабочие часы 9:00–21:00 по часу,
+    исключаем уже забронированные слоты.
+    """
+    tutor = await db.get(TutorProfile, tutor_id)
+    if tutor is None:
+        raise ValueError("Репетитор не найден")
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    today = now.date()
+    horizon_end = datetime.combine(today + timedelta(days=days), datetime.min.time())
+
+    # Забираем все активные брони в горизонте
+    bookings_query = select(BookingSession).where(
+        BookingSession.tutor_id == tutor_id,
+        BookingSession.status.in_([BookingStatus.pending, BookingStatus.confirmed]),
+        BookingSession.scheduled_at >= now - timedelta(hours=3),
+        BookingSession.scheduled_at < horizon_end,
+    )
+    bookings_result = await db.execute(bookings_query)
+    busy_starts = {b.scheduled_at.replace(second=0, microsecond=0) for b in bookings_result.scalars()}
+
+    slots_by_day: list[dict] = []
+    for d in range(days):
+        day = today + timedelta(days=d)
+        day_slots = []
+        for hour in range(9, 21):
+            slot_dt = datetime.combine(day, datetime.min.time()).replace(hour=hour)
+            if slot_dt <= now:
+                continue
+            available = slot_dt not in busy_starts
+            day_slots.append({
+                "time": slot_dt.strftime("%H:%M"),
+                "datetime": slot_dt.isoformat(),
+                "available": available,
+            })
+        if day_slots:
+            slots_by_day.append({
+                "date": day.isoformat(),
+                "slots": day_slots,
+            })
+    return slots_by_day
+
+
 async def cancel_booking(
     db: AsyncSession,
     session_id: int,

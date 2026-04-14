@@ -2,7 +2,9 @@
 
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
+
+from app.schemas.auth import _validate_password_strength
 
 
 class UserUpdateRequest(BaseModel):
@@ -11,7 +13,19 @@ class UserUpdateRequest(BaseModel):
     last_name: str | None = Field(None, min_length=2, max_length=75)
     phone: str | None = Field(None, max_length=20)
     avatar_url: str | None = Field(None, max_length=500)
+    bio: str | None = Field(None, max_length=500)
     birth_date: date | None = None
+
+
+class PasswordChangeRequest(BaseModel):
+    """Запрос на смену пароля."""
+    old_password: str
+    new_password: str = Field(..., min_length=6, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def _check_password(cls, v: str) -> str:
+        return _validate_password_strength(v)
 
 
 class UserFullResponse(BaseModel):
@@ -23,6 +37,7 @@ class UserFullResponse(BaseModel):
     role: str
     phone: str | None = None
     avatar_url: str | None = None
+    bio: str | None = None
     birth_date: date | None = None
     created_at: datetime
 
