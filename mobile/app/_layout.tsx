@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { ActivityIndicator, View } from "react-native";
-import { KeyboardProvider } from "react-native-keyboard-controller";
 import { useAuthStore } from "../store/authStore";
 import { Colors } from "../constants/theme";
 import { hasCompletedOnboarding } from "./onboarding";
@@ -45,7 +44,7 @@ export default function RootLayout() {
   }
 
   return (
-    <KeyboardProvider>
+    <>
       <StatusBar style="dark" />
       <Stack
         screenOptions={{
@@ -62,6 +61,6 @@ export default function RootLayout() {
         <Stack.Screen name="help" options={{ title: "Помощь" }} />
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
       </Stack>
-    </KeyboardProvider>
+    </>
   );
 }

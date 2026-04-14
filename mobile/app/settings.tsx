@@ -12,7 +12,6 @@ import {
 } from "react-native";
 import { Stack, useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
-import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { Avatar } from "../components/Avatar";
 import api from "../services/api";
 import { useAuthStore } from "../store/authStore";
@@ -126,10 +125,10 @@ export default function SettingsScreen() {
   return (
     <>
       <Stack.Screen options={{ title: "Настройки" }} />
-      <KeyboardAwareScrollView
+      <ScrollView
         style={styles.container}
         contentContainerStyle={styles.content}
-        bottomOffset={20}
+        keyboardShouldPersistTaps="handled"
       >
         {/* Аватар */}
         <View style={styles.avatarSection}>
@@ -278,7 +277,7 @@ export default function SettingsScreen() {
         >
           <Text style={styles.logoutBtnText}>Выйти из аккаунта</Text>
         </TouchableOpacity>
-      </KeyboardAwareScrollView>
+      </ScrollView>
     </>
   );
 }
