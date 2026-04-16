@@ -6,27 +6,56 @@
 
 ---
 
-## Возможности
+## Реализованные возможности
 
 ### Персональный AI-тьютор
-- Чат-репетитор по любому школьному предмету (GPT-4o / Claude)
+- Чат-репетитор по любому школьному предмету (Gemini / GPT-4o / Claude)
+- Подстройка AI под выбранный предмет — системный промпт меняется автоматически
 - Режим Сократа — наводящие вопросы вместо прямых ответов
 - Проверка домашних заданий через AI с разбором ошибок
 - Генерация тестов по теме и уровню сложности
 - Контекст диалога — AI помнит о чём вы говорили
 
 ### Маркетплейс репетиторов
-- Каталог верифицированных репетиторов с фильтрами
+- Каталог репетиторов с фильтрами по предмету, цене, рейтингу
 - Профили с рейтингом, отзывами, предметами
-- Онлайн-бронирование занятий
-- Видеозвонки через Agora RTC SDK
+- Онлайн-бронирование занятий с выбором слотов на 14 дней вперёд
+- Экран видеозанятия (подготовлен под Agora RTC SDK)
+- Сидинг демо-данных — по репетитору на каждый предмет
+
+### Тесты и подготовка к экзаменам
+- Банк тестов ОГЭ/ЕГЭ по всем предметам
+- Каскадные фильтры: формат экзамена → предмет → номер задания → сложность
+- Таймер прохождения
+- Разбор ответов с AI-пояснением после сдачи
+- AI-генерация похожих заданий
 
 ### Прогресс и аналитика
-- Персональная статистика по всем предметам
-- Визуализация прогресса с прогресс-барами
+- Персональная статистика (streak, часы обучения, средний балл, пройденные тесты)
+- Прогресс-бары по предметам
 - Автоматическое определение слабых тем
 - AI-рекомендации что повторить
 - История прохождения тестов
+
+### Главный экран (Duolingo-стиль)
+- Streak дней подряд
+- Дневная цель с прогресс-баром
+- AI-тренер дня (рекомендация слабой темы)
+- Карточка предстоящего занятия с обратным отсчётом
+- Быстрый тест-разминка
+- Лента активности
+
+### Авторизация и профиль
+- JWT авторизация (регистрация, вход, refresh-токены)
+- Разделение имени/фамилии
+- Валидация пароля с индикатором силы
+- Настройки профиля (bio, имя, фамилия, телефон, дата рождения)
+- Экран помощи / FAQ / онбординг
+
+### Управление занятиями
+- Бронирование с проверкой свободных слотов
+- Раздел «Мои занятия» (предстоящие / прошедшие)
+- Фильтрация по статусу
 
 ---
 
@@ -40,12 +69,13 @@
 | SQLAlchemy 2.0 (async) | ORM |
 | PostgreSQL 16 | Основная БД |
 | Redis 7 | Кэш и очереди |
-| Alembic | Миграции БД |
-| Pydantic v2 | Валидация данных |
+| Alembic | Миграции БД (9 миграций) |
+| Pydantic v2 | Валидация данных (ConfigDict) |
 | JWT (python-jose) | Аутентификация |
-| OpenAI / Anthropic API | AI-провайдеры |
-| Pytest | Тестирование |
-| Docker | Контейнеризация |
+| Google Gemini API | Основной AI-провайдер (через OpenAI SDK) |
+| OpenAI / Anthropic API | Альтернативные AI-провайдеры |
+| Pytest | Тестирование (43+ тестов) |
+| Docker (multi-stage) | Контейнеризация |
 
 ### Mobile
 | Технология | Назначение |
@@ -53,10 +83,10 @@
 | React Native | Фреймворк |
 | Expo (SDK 51+) | Сборка и деплой |
 | TypeScript | Язык |
-| Expo Router | Навигация |
+| Expo Router | Файловая навигация |
 | Zustand | Стейт-менеджмент |
 | Axios | HTTP-клиент |
-| Agora RTC SDK | Видеозвонки |
+| React.memo / useCallback | Оптимизация рендеров |
 
 ---
 
@@ -67,33 +97,37 @@ online-tutor/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py              # Точка входа FastAPI
-│   │   ├── config.py            # Настройки из .env
+│   │   ├── config.py            # Настройки из .env (Pydantic Settings)
 │   │   ├── database.py          # Async SQLAlchemy
 │   │   ├── dependencies.py      # JWT авторизация
-│   │   ├── models/              # SQLAlchemy модели (7 таблиц)
-│   │   ├── schemas/             # Pydantic схемы
-│   │   ├── routers/             # API эндпоинты
-│   │   └── services/            # Бизнес-логика
-│   ├── alembic/                 # Миграции БД
-│   ├── tests/                   # Pytest тесты
+│   │   ├── models/              # SQLAlchemy модели (9 таблиц)
+│   │   ├── schemas/             # Pydantic v2 схемы
+│   │   ├── routers/             # API эндпоинты (7 роутеров)
+│   │   └── services/            # Бизнес-логика (AI, auth, tutor, session, video, progress)
+│   ├── alembic/                 # Миграции БД (9 миграций)
+│   ├── scripts/                 # Сидинг данных (seed_tutors, seed_tests)
+│   ├── tests/                   # Pytest тесты (43+)
 │   ├── requirements.txt
-│   └── Dockerfile
+│   └── Dockerfile               # Multi-stage build
 │
 ├── mobile/
 │   ├── app/
-│   │   ├── (auth)/              # Экраны входа/регистрации
-│   │   ├── (tabs)/              # Основные вкладки
-│   │   │   ├── index.tsx        # Главная / дашборд
-│   │   │   ├── chat.tsx         # AI-чат
-│   │   │   ├── tests.tsx        # Тесты
-│   │   │   ├── tutors.tsx       # Маркетплейс репетиторов
-│   │   │   └── profile.tsx      # Профиль и прогресс
-│   │   └── session/[id].tsx     # Экран видеозанятия
+│   │   ├── (auth)/              # Вход / Регистрация
+│   │   ├── (tabs)/              # Главная, AI-чат, Тесты, Репетиторы, Профиль
+│   │   ├── session/[id].tsx     # Экран видеозанятия
+│   │   ├── my-sessions.tsx      # Мои занятия
+│   │   ├── settings.tsx         # Настройки профиля
+│   │   ├── progress.tsx         # Прогресс
+│   │   ├── help.tsx             # Помощь / FAQ
+│   │   └── onboarding.tsx       # Онбординг
+│   ├── components/              # Avatar, Card, Heatmap, PasswordStrengthIndicator
 │   ├── services/api.ts          # HTTP клиент
 │   ├── store/authStore.ts       # Zustand стор
 │   └── constants/theme.ts       # Тема и цвета
 │
-└── docker-compose.yml
+├── docker-compose.yml
+├── CLAUDE.md                    # Контекст для AI-разработки (только TODO)
+└── README.md                    # Этот файл
 ```
 
 ---
@@ -113,26 +147,27 @@ POST   /api/v1/auth/logout       — Выход
 GET    /api/v1/users/me           — Профиль
 PUT    /api/v1/users/me           — Обновление профиля
 GET    /api/v1/users/me/progress  — Прогресс по предметам
-GET    /api/v1/users/me/stats     — Общая статистика
+GET    /api/v1/users/me/stats     — Общая статистика (streak, часы, средний балл)
 GET    /api/v1/users/me/test-history — История тестов
 ```
 
 ### AI-тьютор
 ```
-POST   /api/v1/ai/chat            — Сообщение AI
+POST   /api/v1/ai/chat            — Сообщение AI (с учётом выбранного предмета)
 GET    /api/v1/ai/chat/history    — История чатов
 POST   /api/v1/ai/homework        — Проверка ДЗ
 POST   /api/v1/ai/generate-test   — Генерация теста
-POST   /api/v1/ai/submit-test     — Сдать тест
-GET    /api/v1/ai/recommendations  — Рекомендации
+POST   /api/v1/ai/submit-test     — Сдать тест с разбором
+GET    /api/v1/ai/recommendations  — Персональные рекомендации
 ```
 
 ### Репетиторы
 ```
 GET    /api/v1/tutors/             — Список (фильтры: предмет, цена, рейтинг)
 GET    /api/v1/tutors/{id}         — Профиль репетитора
+GET    /api/v1/tutors/{id}/slots   — Свободные слоты на 14 дней
+GET    /api/v1/tutors/{id}/reviews — Отзывы
 POST   /api/v1/tutors/{id}/review  — Оставить отзыв
-GET    /api/v1/tutors/{id}/reviews — Список отзывов
 ```
 
 ### Занятия
@@ -145,7 +180,7 @@ PUT    /api/v1/sessions/{id}/cancel — Отмена
 
 ### Видеозвонки
 ```
-POST   /api/v1/video/token          — Agora токен
+POST   /api/v1/video/token          — Agora RTC токен
 POST   /api/v1/video/recording/start — Начать запись
 ```
 
@@ -169,17 +204,24 @@ cd online-tutor
 ### 2. Настройка окружения
 ```bash
 cp .env.example .env
-# Отредактируйте .env — укажите API-ключи OpenAI/Anthropic
+# Отредактируйте .env — укажите API-ключи AI-провайдера
 ```
 
 ### 3. Запуск через Docker
 ```bash
 docker-compose up -d
+docker exec ai_tutor_backend alembic upgrade head  # Миграции (первый раз)
 ```
-Сервер доступен: http://localhost:8000
-Swagger UI: http://localhost:8000/docs
+- Сервер: http://localhost:8000
+- Swagger UI: http://localhost:8000/docs
 
-### 4. Запуск без Docker
+### 4. Сидинг демо-данных
+```bash
+docker exec ai_tutor_backend python -m scripts.seed_tutors   # Репетиторы
+docker exec ai_tutor_backend python -m scripts.seed_tests    # Тесты ОГЭ/ЕГЭ
+```
+
+### 5. Запуск без Docker
 
 **Backend:**
 ```bash
@@ -199,11 +241,19 @@ npm install
 npx expo start
 ```
 
-### 5. Запуск тестов
+### 6. Перезапуск backend
+```bash
+docker-compose restart backend                 # Изменён код Python
+docker-compose up -d --force-recreate backend  # Изменён .env
+docker-compose up -d --build backend           # Изменён requirements.txt
+```
+
+### 7. Тесты
 ```bash
 cd backend
-pip install -r requirements.txt
-pytest -v
+pytest -v                    # Все тесты (43+)
+pytest tests/test_auth.py    # Только авторизация
+pytest -k "test_login"       # По имени
 ```
 
 ---
@@ -224,39 +274,23 @@ users ─────────────── tutor_profiles ──── 
   └── subjects ──── topics
 ```
 
+9 Alembic-миграций: initial tables, reviews, exam type/task number, performance indexes, split full name, drop tokens_used, cleanup AIProvider enum, add user bio.
+
 ---
 
 ## AI-провайдер
 
-Архитектура с абстрактным провайдером — переключение между OpenAI и Anthropic одной переменной:
+Архитектура с абстрактным провайдером — переключение одной переменной:
 
 ```env
-AI_PROVIDER=openai        # GPT-4o-mini
-AI_PROVIDER=anthropic     # Claude Sonnet
+AI_PROVIDER=gemini       # Gemini 2.0 Flash (основной, бесплатный)
+AI_PROVIDER=openai       # GPT-4o-mini
+AI_PROVIDER=anthropic    # Claude Sonnet
 ```
 
-Оба провайдера реализуют единый интерфейс `BaseAIProvider`, что позволяет добавлять новых провайдеров без изменения бизнес-логики.
+Все провайдеры реализуют единый интерфейс `BaseAIProvider`. Gemini работает через OpenAI-совместимый endpoint (используется AsyncOpenAI клиент).
 
----
-
-## Тестирование
-
-Покрытие тестами ключевых модулей:
-
-| Модуль | Тестов | Что покрыто |
-|--------|--------|------------|
-| auth | 12 | Хеширование, JWT, регистрация, вход, refresh |
-| users | 7 | Профиль, обновление, прогресс, статистика |
-| tutors | 9 | Список, фильтры, профиль, отзывы |
-| subjects | 6 | Предметы, темы, 404 |
-| sessions | 6 | Бронирование, список, отмена, доступ |
-| video | 3 | Генерация токенов |
-
-```bash
-pytest -v                    # все тесты
-pytest tests/test_auth.py    # только авторизация
-pytest -k "test_login"       # по имени
-```
+AI автоматически подстраивается под выбранный предмет — системный промпт генерируется динамически.
 
 ---
 
@@ -269,6 +303,21 @@ pytest -k "test_login"       # по имени
 - Английский язык
 - Информатика
 - География, Литература
+
+---
+
+## Тестирование
+
+43+ тестов покрывают ключевые модули:
+
+| Модуль | Тестов | Что покрыто |
+|--------|--------|------------|
+| auth | 12 | Хеширование, JWT, регистрация, вход, refresh |
+| users | 7 | Профиль, обновление, прогресс, статистика |
+| tutors | 9 | Список, фильтры, профиль, отзывы, слоты |
+| subjects | 6 | Предметы, темы, 404 |
+| sessions | 6 | Бронирование, список, отмена, доступ |
+| video | 3 | Генерация токенов |
 
 ---
 
@@ -287,10 +336,10 @@ pytest -k "test_login"       # по имени
 
 Ни один из существующих сервисов (Profi.ru, Skyeng, Умскул) не объединяет:
 - Маркетплейс живых репетиторов
-- Персональный AI-тьютор
+- Персональный AI-тьютор (Gemini / GPT / Claude)
 - Проверку ДЗ через AI
-- Генерацию тестов с разбором
-- Аналитику прогресса
+- Генерацию тестов ОГЭ/ЕГЭ с разбором
+- Аналитику прогресса и streak-систему
 
 **AI Tutor** — это всё в одном приложении.
 
