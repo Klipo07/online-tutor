@@ -13,4 +13,4 @@ export const Colors = {
   inputBg: "#F3F4F6",
 };
 
-export const API_URL = "http://10.0.2.2:8000/api/v1"; // Android emulator -> localhost
+export const API_URL = "http://192.168.0.105:8000/api/v1"; // LAN IP (работает и для эмулятора, и для физических устройств)

@@ -131,6 +131,9 @@ async def get_session_by_id(
     return result.unique().scalar_one_or_none()
 
 
+_WEEKDAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+
+
 async def get_tutor_slots(
     db: AsyncSession,
     tutor_id: int,
@@ -138,12 +141,16 @@ async def get_tutor_slots(
 ) -> list[dict]:
     """Вернуть свободные слоты репетитора на N дней вперёд.
 
-    Простая эвристика MVP: рабочие часы 9:00–21:00 по часу,
-    исключаем уже забронированные слоты.
+    Учитываем рабочие часы из `TutorProfile.working_hours`
+    (формат `{"mon":[9,21], ..., "sun":null}`) и исключаем занятые слоты.
     """
+    from app.models.tutor import DEFAULT_WORKING_HOURS
+
     tutor = await db.get(TutorProfile, tutor_id)
     if tutor is None:
         raise ValueError("Репетитор не найден")
+
+    working_hours = tutor.working_hours or DEFAULT_WORKING_HOURS
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     today = now.date()
@@ -162,8 +169,15 @@ async def get_tutor_slots(
     slots_by_day: list[dict] = []
     for d in range(days):
         day = today + timedelta(days=d)
+        day_key = _WEEKDAY_KEYS[day.weekday()]
+        hours_range = working_hours.get(day_key)
+        # null — выходной; пропускаем день полностью
+        if not hours_range:
+            continue
+
+        start_hour, end_hour = hours_range[0], hours_range[1]
         day_slots = []
-        for hour in range(9, 21):
+        for hour in range(start_hour, end_hour):
             slot_dt = datetime.combine(day, datetime.min.time()).replace(hour=hour)
             if slot_dt <= now:
                 continue
@@ -203,25 +217,23 @@ async def cancel_booking(
     dialect = db.bind.dialect.name if db.bind else ""
     use_row_lock = dialect == "postgresql"
 
-    query = (
-        select(BookingSession)
-        .options(
-            joinedload(BookingSession.tutor).joinedload(TutorProfile.user),
-            joinedload(BookingSession.subject),
-        )
-        .where(BookingSession.id == session_id)
-    )
+    # FOR UPDATE не работает с joinedload (outer join nullable side в Postgres),
+    # поэтому блокируем только booking_sessions, а tutor.user_id подгружаем отдельно
+    query = select(BookingSession).where(BookingSession.id == session_id)
     if use_row_lock:
         query = query.with_for_update()
 
-    booking = (await db.execute(query)).unique().scalar_one_or_none()
+    booking = (await db.execute(query)).scalar_one_or_none()
 
     if booking is None:
         raise ValueError("Занятие не найдено")
 
     # Проверяем что пользователь — участник занятия
     is_student = booking.student_id == user_id
-    is_tutor = booking.tutor.user_id == user_id
+    tutor_user_id = await db.scalar(
+        select(TutorProfile.user_id).where(TutorProfile.id == booking.tutor_id)
+    )
+    is_tutor = tutor_user_id == user_id
     if not is_student and not is_tutor:
         raise PermissionError("Вы не можете отменить это занятие")
 

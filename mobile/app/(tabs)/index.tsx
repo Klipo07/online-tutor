@@ -13,6 +13,7 @@ import { useAuthStore } from "../../store/authStore";
 import { Colors } from "../../constants/theme";
 import api from "../../services/api";
 import { EmailVerifyBanner } from "../../components/EmailVerifyBanner";
+import TutorDashboard from "../../components/TutorDashboard";
 
 // Дата выпуска ЕГЭ (примерно 27 мая) — используем для отсчёта дней до экзамена
 const EGE_DATE_ISO = "2026-05-27T09:00:00Z";
@@ -89,6 +90,11 @@ export default function HomeScreen() {
   const router = useRouter();
   const [stats, setStats] = useState<Stats | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Для репетитора показываем совершенно другой дашборд
+  if (user?.role === "tutor") {
+    return <TutorDashboard />;
+  }
 
   const tip = DAILY_TIPS[new Date().getDate() % DAILY_TIPS.length];
   const egeDays = daysUntilEge();

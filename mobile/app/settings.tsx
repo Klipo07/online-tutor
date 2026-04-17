@@ -19,7 +19,7 @@ import { Colors } from "../constants/theme";
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { user, setUser, logout } = useAuthStore();
+  const { user, setUser, logout, resetOnboarding } = useAuthStore();
 
   const [firstName, setFirstName] = useState(user?.first_name ?? "");
   const [lastName, setLastName] = useState(user?.last_name ?? "");
@@ -258,6 +258,30 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Пересмотреть онбординг — сбрасывает флаг и разлогинивает */}
+        <TouchableOpacity
+          style={styles.secondaryBtn}
+          onPress={() =>
+            Alert.alert(
+              "Пересмотреть онбординг",
+              "Покажем вводные слайды заново. Потребуется войти в аккаунт снова.",
+              [
+                { text: "Отмена", style: "cancel" },
+                {
+                  text: "Показать",
+                  onPress: async () => {
+                    await resetOnboarding();
+                    await logout();
+                    router.replace("/onboarding");
+                  },
+                },
+              ]
+            )
+          }
+        >
+          <Text style={styles.secondaryBtnText}>Пересмотреть онбординг</Text>
+        </TouchableOpacity>
+
         {/* Опасная зона */}
         <TouchableOpacity
           style={styles.logoutBtn}
@@ -332,6 +356,15 @@ const styles = StyleSheet.create({
   },
   disabledBtn: { opacity: 0.5 },
   saveBtnText: { color: "#fff", fontSize: 15, fontWeight: "700" },
+  secondaryBtn: {
+    marginTop: 4,
+    marginBottom: 8,
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: Colors.primary + "15",
+    alignItems: "center",
+  },
+  secondaryBtnText: { color: Colors.primary, fontSize: 15, fontWeight: "600" },
   logoutBtn: {
     marginTop: 8,
     padding: 16,

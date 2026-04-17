@@ -38,10 +38,23 @@ export default function ProfileScreen() {
       </View>
 
       <View style={styles.section}>
-        <TouchableOpacity style={styles.menuItem} onPress={() => router.push("/progress")}>
-          <Text style={styles.menuIcon}>📊</Text>
-          <Text style={styles.menuText}>Мой прогресс</Text>
-        </TouchableOpacity>
+        {user?.role === "tutor" ? (
+          <>
+            <TouchableOpacity style={styles.menuItem} onPress={() => router.push("/tutor-profile-edit")}>
+              <Text style={styles.menuIcon}>✏️</Text>
+              <Text style={styles.menuText}>Предметы и цена</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={() => router.push("/tutor-reviews")}>
+              <Text style={styles.menuIcon}>⭐</Text>
+              <Text style={styles.menuText}>Отзывы обо мне</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <TouchableOpacity style={styles.menuItem} onPress={() => router.push("/progress")}>
+            <Text style={styles.menuIcon}>📊</Text>
+            <Text style={styles.menuText}>Мой прогресс</Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity style={styles.menuItem} onPress={() => router.push("/my-sessions")}>
           <Text style={styles.menuIcon}>📅</Text>
           <Text style={styles.menuText}>Мои занятия</Text>

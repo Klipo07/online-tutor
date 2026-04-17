@@ -1,7 +1,7 @@
 """drop bio column from tutor_profiles
 
 Revision ID: a8b9c0d1e2f3
-Revises: f6a7b8c9d0e1
+Revises: a7b8c9d0e1f2
 Create Date: 2026-04-17 10:00:00.000000
 """
 from typing import Sequence, Union
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 
 revision: str = 'a8b9c0d1e2f3'
-down_revision: Union[str, None] = 'f6a7b8c9d0e1'
+down_revision: Union[str, None] = 'a7b8c9d0e1f2'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

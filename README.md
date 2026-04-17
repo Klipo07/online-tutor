@@ -65,7 +65,18 @@
 - Единый эндпоинт `/auth/register` с discriminated union (Pydantic v2)
 - Для роли `tutor` — атомарное создание `User + TutorProfile` в одной транзакции
 - Выбор предметов, цены за час, опыта, образования, bio
-- По умолчанию `is_verified=false` — попадёт в маркетплейс после подтверждения email
+- По умолчанию `is_verified=true` (временно, до боевого SMTP) — репетитор сразу появляется в маркетплейсе
+- Маркетплейс авто-рефрешится при возврате на таб (`useFocusEffect`), новые репетиторы видны без перезапуска
+
+### Ролевой интерфейс репетитора
+- Отдельный набор табов по роли: `chat`/`tests`/`tutors` скрыты у тьютора, вместо них — «Мои занятия» (`t-sessions`) и «Расписание» (`t-schedule`)
+- Дашборд репетитора на главной — приветствие, карточка ближайшего занятия с обратным отсчётом, доход за месяц, рейтинг, мини-статистика (ученики / проведено / предстоящие), быстрые действия
+- Экран «Мои занятия» тьютора — три фильтра (Предстоящие / Сегодня / История), статус-пилюли, клик по карточке → экран занятия
+- Экран «Расписание» — per-day рабочие часы с toggle Рабочий/Выходной, ± степпер начала/конца (хранится в `TutorProfile.working_hours` JSONB, дефолт `пн-пт 9-21, сб 10-18, вс — выходной`)
+- Экран «Предметы и цена» (`tutor-profile-edit`) — мультивыбор предметов из каталога, цена/опыт/образование, PATCH `/tutors/me/profile`
+- Экран «Отзывы обо мне» (`tutor-reviews`) — лента через `/tutors/me/reviews`
+- Меню профиля ветвится по роли: тьютор видит «Предметы и цена» + «Отзывы обо мне», ученик — «Мой прогресс»
+- Свободные слоты (`GET /tutors/{id}/slots`) считаются **по `working_hours` репетитора**, а не по жёстко зашитым 9-18
 
 ### Верификация email
 - После регистрации — письмо с ссылкой (Yandex SMTP, TTL 24ч)
@@ -88,7 +99,7 @@
 | SQLAlchemy 2.0 (async) | ORM |
 | PostgreSQL 16 | Основная БД |
 | Redis 7 | Кэш и очереди |
-| Alembic | Миграции БД (13 миграций) |
+| Alembic | Миграции БД (14 миграций) |
 | Pydantic v2 | Валидация данных (ConfigDict, discriminated unions) |
 | JWT (python-jose) | Аутентификация |
 | Google Gemini API | Основной AI-провайдер (через OpenAI SDK) |
@@ -123,7 +134,7 @@ online-tutor/
 │   │   ├── schemas/             # Pydantic v2 схемы
 │   │   ├── routers/             # API эндпоинты (7 роутеров)
 │   │   └── services/            # Бизнес-логика (AI, auth, tutor, session, video, progress)
-│   ├── alembic/                 # Миграции БД (13 миграций)
+│   ├── alembic/                 # Миграции БД (14 миграций)
 │   ├── scripts/                 # Сидинг данных (seed_tutors, seed_tests)
 │   ├── tests/                   # Pytest тесты (68)
 │   ├── requirements.txt
@@ -131,17 +142,20 @@ online-tutor/
 │
 ├── mobile/
 │   ├── app/
-│   │   ├── (auth)/              # Вход / Регистрация
-│   │   ├── (tabs)/              # Главная, AI-чат, Тесты, Репетиторы, Профиль
+│   │   ├── (auth)/              # Вход / Регистрация (student или tutor, discriminated union)
+│   │   ├── (tabs)/              # Главная, AI-чат, Тесты, Репетиторы, Профиль (ученик)
+│   │   │                        # + t-sessions, t-schedule (тьютор — ролевое ветвление)
 │   │   ├── session/[id].tsx     # Экран видеозанятия
-│   │   ├── my-sessions.tsx      # Мои занятия + отмена
+│   │   ├── my-sessions.tsx      # Мои занятия + отмена (ученик)
+│   │   ├── tutor-profile-edit.tsx # Предметы и цена (тьютор)
+│   │   ├── tutor-reviews.tsx    # Отзывы обо мне (тьютор)
 │   │   ├── settings.tsx         # Настройки профиля
-│   │   ├── progress.tsx         # Прогресс
+│   │   ├── progress.tsx         # Прогресс (ученик)
 │   │   ├── help.tsx             # Помощь / FAQ
 │   │   ├── onboarding.tsx       # Онбординг
 │   │   ├── check-email.tsx      # Экран после регистрации (resend + cooldown)
 │   │   └── verify.tsx           # Deep link обработчик ai-tutor://verify
-│   ├── components/              # Avatar, Card, Heatmap, CancelBookingModal, PasswordStrengthIndicator, EmailVerifyBanner
+│   ├── components/              # Avatar, Card, Heatmap, CancelBookingModal, PasswordStrengthIndicator, EmailVerifyBanner, TutorDashboard
 │   ├── services/api.ts          # HTTP клиент
 │   ├── store/authStore.ts       # Zustand стор
 │   └── constants/theme.ts       # Тема и цвета
@@ -188,9 +202,14 @@ GET    /api/v1/ai/recommendations  — Персональные рекоменд
 ```
 GET    /api/v1/tutors/             — Список (фильтры: предмет JSONB @>, цена, рейтинг; только verified)
 GET    /api/v1/tutors/{id}         — Профиль репетитора
-GET    /api/v1/tutors/{id}/slots   — Свободные слоты на 14 дней
+GET    /api/v1/tutors/{id}/slots   — Свободные слоты на 14 дней (по working_hours)
 GET    /api/v1/tutors/{id}/reviews — Отзывы
 POST   /api/v1/tutors/{id}/review  — Оставить отзыв
+GET    /api/v1/tutors/me/schedule  — Моё расписание (рабочие часы по дням)
+PUT    /api/v1/tutors/me/schedule  — Обновить расписание
+PATCH  /api/v1/tutors/me/profile   — Обновить мой профиль (предметы, цена, опыт, образование)
+GET    /api/v1/tutors/me/stats     — Статистика для дашборда (ученики, доход, рейтинг, ближайшее занятие)
+GET    /api/v1/tutors/me/reviews   — Отзывы обо мне
 ```
 
 ### Занятия
@@ -306,7 +325,7 @@ users ─────────────── tutor_profiles ──── 
   └── subjects ──── topics
 ```
 
-13 Alembic-миграций: initial tables, reviews, exam type/task number, performance indexes, split full name, drop tokens_used, cleanup AIProvider enum, add user bio, drop tutor_profile bio, tutor subjects GIN index (JSONB), booking cancellation fields, test feedback table, email verification fields.
+14 Alembic-миграций: initial tables, reviews, exam type/task number, performance indexes, split full name, drop tokens_used, cleanup AIProvider enum, add user bio, drop tutor_profile bio, tutor subjects GIN index (JSONB), booking cancellation fields, test feedback table, email verification fields, **tutor working_hours JSONB**.
 
 ---
 

@@ -43,18 +43,23 @@ type AuthState = {
   user: User | null;
   isLoading: boolean;
   isAuth: boolean;
+  onboardingDone: boolean | null;
 
   register: (payload: RegisterPayload) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
   setUser: (user: User) => void;
+  loadOnboardingFlag: () => Promise<void>;
+  markOnboardingDone: () => Promise<void>;
+  resetOnboarding: () => Promise<void>;
 };
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   isLoading: true,
   isAuth: false,
+  onboardingDone: null,
 
   register: async (payload) => {
     const res = await api.post("/auth/register", payload);
@@ -78,6 +83,21 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   setUser: (user) => set({ user }),
+
+  loadOnboardingFlag: async () => {
+    const value = await AsyncStorage.getItem("onboarding_completed");
+    set({ onboardingDone: value === "1" });
+  },
+
+  markOnboardingDone: async () => {
+    await AsyncStorage.setItem("onboarding_completed", "1");
+    set({ onboardingDone: true });
+  },
+
+  resetOnboarding: async () => {
+    await AsyncStorage.removeItem("onboarding_completed");
+    set({ onboardingDone: false });
+  },
 
   checkAuth: async () => {
     try {

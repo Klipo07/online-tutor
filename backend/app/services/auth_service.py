@@ -103,8 +103,9 @@ async def create_tutor_user(
 ) -> User:
     """Создать репетитора: User + TutorProfile в одной транзакции.
 
-    Профиль создаётся с is_verified=False — активируется после подтверждения
-    email (задача 3) или вручную администратором.
+    Профиль создаётся с is_verified=True, чтобы новые репетиторы сразу
+    появлялись в маркетплейсе учеников. После настройки реального SMTP
+    флаг можно вернуть в False и активировать через подтверждение email.
     """
     user = User(
         email=email,
@@ -123,7 +124,7 @@ async def create_tutor_user(
         price_per_hour=price_per_hour,
         experience_years=experience_years,
         education=education,
-        is_verified=False,
+        is_verified=True,
     )
     db.add(profile)
     await db.commit()

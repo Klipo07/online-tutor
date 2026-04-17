@@ -1,21 +1,19 @@
 // Корневой layout — проверка авторизации и маршрутизация
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { ActivityIndicator, View } from "react-native";
 import { useAuthStore } from "../store/authStore";
 import { Colors } from "../constants/theme";
-import { hasCompletedOnboarding } from "./onboarding";
 
 export default function RootLayout() {
-  const { isAuth, isLoading, checkAuth } = useAuthStore();
+  const { isAuth, isLoading, checkAuth, onboardingDone, loadOnboardingFlag } = useAuthStore();
   const segments = useSegments();
   const router = useRouter();
-  const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null);
 
   useEffect(() => {
     checkAuth();
-    hasCompletedOnboarding().then(setOnboardingDone);
+    loadOnboardingFlag();
   }, []);
 
   useEffect(() => {
@@ -62,6 +60,8 @@ export default function RootLayout() {
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
         <Stack.Screen name="check-email" options={{ title: "Подтверждение email" }} />
         <Stack.Screen name="verify" options={{ title: "Подтверждение email" }} />
+        <Stack.Screen name="tutor-profile-edit" options={{ title: "Мой профиль" }} />
+        <Stack.Screen name="tutor-reviews" options={{ title: "Отзывы обо мне" }} />
       </Stack>
     </>
   );

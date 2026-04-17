@@ -236,7 +236,7 @@ class TestTutorRegistration:
         assert data["user"]["role"] == "tutor"
         assert data["user"]["email"] == "newtutor@test.com"
 
-        # Профиль создан, is_verified=False, bio — в users
+        # Профиль создан, is_verified=True (сразу в маркетплейсе), bio — в users
         user = (await db_session.execute(
             select(User).where(User.email == "newtutor@test.com")
         )).scalar_one()
@@ -245,7 +245,7 @@ class TestTutorRegistration:
         profile = (await db_session.execute(
             select(TutorProfile).where(TutorProfile.user_id == user.id)
         )).scalar_one()
-        assert profile.is_verified is False
+        assert profile.is_verified is True
         assert profile.subjects == ["Математика", "Физика"]
         assert float(profile.price_per_hour) == 1500.0
         assert profile.experience_years == 5
@@ -294,14 +294,14 @@ class TestTutorRegistration:
         assert response.json()["user"]["role"] == "student"
 
     @pytest.mark.asyncio
-    async def test_register_tutor_not_in_marketplace(
+    async def test_register_tutor_appears_in_marketplace(
         self, client: AsyncClient
     ):
-        """Новый репетитор с is_verified=False не появляется в /tutors."""
+        """Новый репетитор сразу появляется в /tutors (is_verified=True по умолчанию)."""
         await client.post("/api/v1/auth/register", json={
-            "email": "hidden@test.com",
+            "email": "newmarket@test.com",
             "password": "Password123",
-            "first_name": "Скрытый",
+            "first_name": "Новый",
             "last_name": "Репетитор",
             "role": "tutor",
             "subjects": ["Математика"],
@@ -311,8 +311,8 @@ class TestTutorRegistration:
         response = await client.get("/api/v1/tutors/")
         assert response.status_code == 200
         tutors = response.json()["tutors"]
-        emails = [t.get("email") for t in tutors]
-        assert "hidden@test.com" not in emails
+        names = [t["full_name"] for t in tutors]
+        assert "Новый Репетитор" in names
         assert all(t["is_verified"] for t in tutors)
 
 

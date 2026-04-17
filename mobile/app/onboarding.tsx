@@ -13,6 +13,7 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Stack, useRouter } from "expo-router";
 import { Colors } from "../constants/theme";
+import { useAuthStore } from "../store/authStore";
 
 const { width } = Dimensions.get("window");
 
@@ -58,9 +59,10 @@ export default function OnboardingScreen() {
   const router = useRouter();
   const listRef = useRef<FlatList>(null);
   const [index, setIndex] = useState(0);
+  const markOnboardingDone = useAuthStore((s) => s.markOnboardingDone);
 
   const finish = async () => {
-    await AsyncStorage.setItem("onboarding_completed", "1");
+    await markOnboardingDone();
     router.replace("/(auth)/login");
   };
 

@@ -9,6 +9,20 @@ from app.database import Base
 
 # JSON-тип с JSONB на PostgreSQL (для @> оператора и GIN-индекса), JSON на SQLite (тесты)
 _SubjectsJSON = JSON().with_variant(JSONB(), "postgresql")
+_HoursJSON = JSON().with_variant(JSONB(), "postgresql")
+
+
+# Дефолтное расписание репетитора — будни 9-21, сб 10-18, вс выходной.
+# Формат: {"mon":[9,21], ..., "sun":null}. null — выходной день.
+DEFAULT_WORKING_HOURS = {
+    "mon": [9, 21],
+    "tue": [9, 21],
+    "wed": [9, 21],
+    "thu": [9, 21],
+    "fri": [9, 21],
+    "sat": [10, 18],
+    "sun": None,
+}
 
 
 class TutorProfile(Base):
@@ -27,6 +41,9 @@ class TutorProfile(Base):
     rating: Mapped[float] = mapped_column(Numeric(3, 2), default=0)
     reviews_count: Mapped[int] = mapped_column(default=0)
     is_verified: Mapped[bool] = mapped_column(default=False)
+    working_hours: Mapped[dict] = mapped_column(
+        _HoursJSON, default=lambda: DEFAULT_WORKING_HOURS.copy()
+    )
 
     # Связи
     user: Mapped["User"] = relationship(back_populates="tutor_profile")

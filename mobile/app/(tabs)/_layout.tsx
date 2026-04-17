@@ -1,7 +1,8 @@
-// Layout с нижними вкладками
+// Layout с нижними вкладками — набор зависит от роли пользователя
 import { Tabs } from "expo-router";
 import { Text } from "react-native";
 import { Colors } from "../../constants/theme";
+import { useAuthStore } from "../../store/authStore";
 
 // Простые текстовые иконки (без внешних зависимостей)
 function TabIcon({ label, focused }: { label: string; focused: boolean }) {
@@ -11,6 +12,12 @@ function TabIcon({ label, focused }: { label: string; focused: boolean }) {
 }
 
 export default function TabLayout() {
+  const role = useAuthStore((s) => s.user?.role);
+  const isTutor = role === "tutor";
+
+  // Утилита: `href: null` скрывает таб в expo-router
+  const hide = (cond: boolean) => (cond ? { href: null as any } : {});
+
   return (
     <Tabs
       screenOptions={{
@@ -27,6 +34,7 @@ export default function TabLayout() {
         headerTitleStyle: { fontWeight: "700" },
       }}
     >
+      {/* Главная — общая для всех, но содержимое разное по роли */}
       <Tabs.Screen
         name="index"
         options={{
@@ -34,11 +42,14 @@ export default function TabLayout() {
           tabBarIcon: ({ focused }) => <TabIcon label="🏠" focused={focused} />,
         }}
       />
+
+      {/* Только ученику */}
       <Tabs.Screen
         name="chat"
         options={{
           title: "AI Чат",
           tabBarIcon: ({ focused }) => <TabIcon label="💬" focused={focused} />,
+          ...hide(isTutor),
         }}
       />
       <Tabs.Screen
@@ -46,6 +57,7 @@ export default function TabLayout() {
         options={{
           title: "Тесты",
           tabBarIcon: ({ focused }) => <TabIcon label="📝" focused={focused} />,
+          ...hide(isTutor),
         }}
       />
       <Tabs.Screen
@@ -53,8 +65,29 @@ export default function TabLayout() {
         options={{
           title: "Репетиторы",
           tabBarIcon: ({ focused }) => <TabIcon label="👨‍🏫" focused={focused} />,
+          ...hide(isTutor),
         }}
       />
+
+      {/* Только репетитору */}
+      <Tabs.Screen
+        name="t-sessions"
+        options={{
+          title: "Занятия",
+          tabBarIcon: ({ focused }) => <TabIcon label="📅" focused={focused} />,
+          ...hide(!isTutor),
+        }}
+      />
+      <Tabs.Screen
+        name="t-schedule"
+        options={{
+          title: "Расписание",
+          tabBarIcon: ({ focused }) => <TabIcon label="🕘" focused={focused} />,
+          ...hide(!isTutor),
+        }}
+      />
+
+      {/* Профиль — общий */}
       <Tabs.Screen
         name="profile"
         options={{

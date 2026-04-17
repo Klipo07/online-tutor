@@ -12,7 +12,7 @@ import {
   ScrollView,
   Alert,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import api from "../../services/api";
 import { Colors } from "../../constants/theme";
 import { Avatar } from "../../components/Avatar";
@@ -149,6 +149,14 @@ export default function TutorsScreen() {
   useEffect(() => {
     loadTutors(1, true);
   }, [loadTutors]);
+
+  // Перезагружаем список при каждом возврате на вкладку — чтобы новые
+  // зарегистрированные репетиторы появлялись без ручного обновления
+  useFocusEffect(
+    useCallback(() => {
+      loadTutors(1, true);
+    }, [loadTutors])
+  );
 
   // Загружаем список предметов из API один раз — для чипов-фильтров
   useEffect(() => {
