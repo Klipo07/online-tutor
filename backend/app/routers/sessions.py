@@ -10,9 +10,11 @@ from app.schemas.session import (
     SessionCreateRequest,
     SessionResponse,
     SessionListResponse,
+    SessionCancelRequest,
     SessionCancelResponse,
 )
 from app.services.session_service import (
+    BookingAlreadyStartedError,
     create_booking,
     get_user_sessions,
     get_session_by_id,
@@ -114,12 +116,23 @@ async def get_session(
 @router.put("/{session_id}/cancel", response_model=SessionCancelResponse)
 async def cancel_session(
     session_id: int,
+    data: SessionCancelRequest | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Отмена бронирования занятия."""
+    """Отмена бронирования занятия.
+
+    Тело `{"reason": "..."}` опционально. Обязательно при отмене за <24 часа.
+    Занятия, уже начавшиеся, отменить нельзя — возвращается 409.
+    """
+    reason = data.reason if data else None
     try:
-        booking = await cancel_booking(db, session_id, current_user.id)
+        booking = await cancel_booking(db, session_id, current_user.id, reason=reason)
+    except BookingAlreadyStartedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -135,4 +148,5 @@ async def cancel_session(
         id=booking.id,
         status=booking.status.value,
         message="Занятие успешно отменено",
+        cancellation_reason=booking.cancellation_reason,
     )

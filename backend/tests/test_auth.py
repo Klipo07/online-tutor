@@ -2,7 +2,10 @@
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.tutor import TutorProfile
 from app.models.user import User
 from app.services.auth_service import (
     hash_password,
@@ -204,3 +207,251 @@ class TestAuthAPI:
         """Выход из системы."""
         response = await client.post("/api/v1/auth/logout")
         assert response.status_code == 200
+
+
+# === Тесты регистрации репетитора (discriminated union) ===
+
+class TestTutorRegistration:
+    """Отдельный флоу регистрации репетитора — User + TutorProfile атомарно."""
+
+    @pytest.mark.asyncio
+    async def test_register_tutor_success(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Регистрация репетитора создаёт User + TutorProfile одной транзакцией."""
+        response = await client.post("/api/v1/auth/register", json={
+            "email": "newtutor@test.com",
+            "password": "Password123",
+            "first_name": "Новый",
+            "last_name": "Репетитор",
+            "role": "tutor",
+            "subjects": ["Математика", "Физика"],
+            "price_per_hour": 1500,
+            "experience_years": 5,
+            "bio": "Готовлю к ЕГЭ",
+            "education": "МФТИ",
+        })
+        assert response.status_code == 201
+        data = response.json()
+        assert data["user"]["role"] == "tutor"
+        assert data["user"]["email"] == "newtutor@test.com"
+
+        # Профиль создан, is_verified=False, bio — в users
+        user = (await db_session.execute(
+            select(User).where(User.email == "newtutor@test.com")
+        )).scalar_one()
+        assert user.bio == "Готовлю к ЕГЭ"
+
+        profile = (await db_session.execute(
+            select(TutorProfile).where(TutorProfile.user_id == user.id)
+        )).scalar_one()
+        assert profile.is_verified is False
+        assert profile.subjects == ["Математика", "Физика"]
+        assert float(profile.price_per_hour) == 1500.0
+        assert profile.experience_years == 5
+        assert profile.education == "МФТИ"
+
+    @pytest.mark.asyncio
+    async def test_register_tutor_requires_subjects(self, client: AsyncClient):
+        """Регистрация репетитора без предметов возвращает 422."""
+        response = await client.post("/api/v1/auth/register", json={
+            "email": "notutor@test.com",
+            "password": "Password123",
+            "first_name": "Без",
+            "last_name": "Предметов",
+            "role": "tutor",
+            "subjects": [],
+            "price_per_hour": 1000,
+            "experience_years": 3,
+        })
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_register_tutor_missing_price(self, client: AsyncClient):
+        """Регистрация репетитора без цены возвращает 422."""
+        response = await client.post("/api/v1/auth/register", json={
+            "email": "noprice@test.com",
+            "password": "Password123",
+            "first_name": "Без",
+            "last_name": "Цены",
+            "role": "tutor",
+            "subjects": ["Математика"],
+            "experience_years": 3,
+        })
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_register_student_ignores_tutor_fields(self, client: AsyncClient):
+        """Для role=student лишние tutor-поля не ломают валидацию (discriminator)."""
+        response = await client.post("/api/v1/auth/register", json={
+            "email": "justastudent@test.com",
+            "password": "Password123",
+            "first_name": "Просто",
+            "last_name": "Ученик",
+            "role": "student",
+        })
+        assert response.status_code == 201
+        assert response.json()["user"]["role"] == "student"
+
+    @pytest.mark.asyncio
+    async def test_register_tutor_not_in_marketplace(
+        self, client: AsyncClient
+    ):
+        """Новый репетитор с is_verified=False не появляется в /tutors."""
+        await client.post("/api/v1/auth/register", json={
+            "email": "hidden@test.com",
+            "password": "Password123",
+            "first_name": "Скрытый",
+            "last_name": "Репетитор",
+            "role": "tutor",
+            "subjects": ["Математика"],
+            "price_per_hour": 1000,
+            "experience_years": 2,
+        })
+        response = await client.get("/api/v1/tutors/")
+        assert response.status_code == 200
+        tutors = response.json()["tutors"]
+        emails = [t.get("email") for t in tutors]
+        assert "hidden@test.com" not in emails
+        assert all(t["is_verified"] for t in tutors)
+
+
+class TestEmailVerification:
+    """Тесты верификации email."""
+
+    @pytest.mark.asyncio
+    async def test_register_issues_verify_token(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """После регистрации у пользователя есть токен верификации."""
+        res = await client.post("/api/v1/auth/register", json={
+            "email": "verifyme@test.com",
+            "password": "Password123",
+            "first_name": "Виктор",
+            "last_name": "Тестов",
+            "role": "student",
+        })
+        assert res.status_code == 201
+        assert res.json()["user"]["email_verified"] is False
+
+        result = await db_session.execute(
+            select(User).where(User.email == "verifyme@test.com")
+        )
+        user = result.scalar_one()
+        assert user.email_verify_token_hash is not None
+        assert user.email_verify_token_expires_at is not None
+        assert user.email_verified_at is None
+
+    @pytest.mark.asyncio
+    async def test_verify_email_success(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """GET /auth/verify-email с валидным токеном подтверждает email."""
+        from app.services.email_service import generate_verification_token, token_expiry
+        from datetime import datetime, timezone
+
+        raw, hashed = generate_verification_token()
+        user = User(
+            email="tobeverified@test.com",
+            password_hash=hash_password("Password123"),
+            first_name="Нина",
+            last_name="Новичок",
+            email_verify_token_hash=hashed,
+            email_verify_token_expires_at=token_expiry(),
+        )
+        db_session.add(user)
+        await db_session.commit()
+
+        res = await client.get(f"/api/v1/auth/verify-email?token={raw}")
+        assert res.status_code == 200
+
+        await db_session.refresh(user)
+        assert user.email_verified_at is not None
+        assert user.email_verify_token_hash is None
+
+    @pytest.mark.asyncio
+    async def test_verify_email_invalid_token(self, client: AsyncClient):
+        """Невалидный токен → 404."""
+        res = await client.get("/api/v1/auth/verify-email?token=totallywrongtoken123")
+        assert res.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_verify_email_expired(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Истёкший токен → 410."""
+        from app.services.email_service import generate_verification_token
+        from datetime import datetime, timedelta, timezone
+
+        raw, hashed = generate_verification_token()
+        past = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)
+        user = User(
+            email="expired@test.com",
+            password_hash=hash_password("Password123"),
+            first_name="Истёк",
+            last_name="Токен",
+            email_verify_token_hash=hashed,
+            email_verify_token_expires_at=past,
+        )
+        db_session.add(user)
+        await db_session.commit()
+
+        res = await client.get(f"/api/v1/auth/verify-email?token={raw}")
+        assert res.status_code == 410
+
+    @pytest.mark.asyncio
+    async def test_verify_email_promotes_tutor(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """После подтверждения email у репетитора TutorProfile становится verified."""
+        reg = await client.post("/api/v1/auth/register", json={
+            "email": "newtutor@test.com",
+            "password": "Password123",
+            "first_name": "Новый",
+            "last_name": "Репетитор",
+            "role": "tutor",
+            "subjects": ["Физика"],
+            "price_per_hour": 1500,
+            "experience_years": 3,
+        })
+        assert reg.status_code == 201
+
+        # Токен захэширован в БД, поэтому генерируем новый известный токен вручную
+        result = await db_session.execute(
+            select(User).where(User.email == "newtutor@test.com")
+        )
+        user = result.scalar_one()
+
+        from app.services.email_service import generate_verification_token, token_expiry
+        raw, hashed = generate_verification_token()
+        user.email_verify_token_hash = hashed
+        user.email_verify_token_expires_at = token_expiry()
+        await db_session.commit()
+
+        res = await client.get(f"/api/v1/auth/verify-email?token={raw}")
+        assert res.status_code == 200
+        assert res.json()["tutor_verified"] is True
+
+        profile_res = await db_session.execute(
+            select(TutorProfile).where(TutorProfile.user_id == user.id)
+        )
+        profile = profile_res.scalar_one()
+        assert profile.is_verified is True
+
+    @pytest.mark.asyncio
+    async def test_send_verification_cooldown(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        """Повторная отправка в течение cooldown возвращает 429."""
+        first = await client.post(
+            "/api/v1/auth/send-verification", headers=auth_headers,
+        )
+        # Первый запрос либо 202 (ok), либо 409 если test_user уже verified
+        assert first.status_code in (202, 409)
+        if first.status_code != 202:
+            return
+
+        second = await client.post(
+            "/api/v1/auth/send-verification", headers=auth_headers,
+        )
+        assert second.status_code == 429

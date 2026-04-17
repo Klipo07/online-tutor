@@ -44,6 +44,28 @@ class TestTutorsAPI:
         assert response.json()["total"] == 0
 
     @pytest.mark.asyncio
+    async def test_list_tutors_hides_unverified(
+        self, client: AsyncClient, test_tutor_user: User, db_session,
+    ):
+        """Репетитор с is_verified=False не попадает в маркетплейс."""
+        profile = TutorProfile(
+            user_id=test_tutor_user.id,
+            subjects=["Математика"],
+            price_per_hour=1000,
+            experience_years=3,
+            education="МФТИ",
+            rating=0,
+            reviews_count=0,
+            is_verified=False,
+        )
+        db_session.add(profile)
+        await db_session.commit()
+
+        response = await client.get("/api/v1/tutors/")
+        assert response.status_code == 200
+        assert response.json()["total"] == 0
+
+    @pytest.mark.asyncio
     async def test_get_tutor_profile(self, client: AsyncClient, test_tutor_profile: TutorProfile):
         """Получение профиля репетитора по ID."""
         response = await client.get(f"/api/v1/tutors/{test_tutor_profile.id}")

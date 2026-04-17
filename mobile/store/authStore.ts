@@ -13,19 +13,38 @@ type User = {
   avatar_url: string | null;
   bio?: string | null;
   phone?: string | null;
+  email_verified?: boolean;
+  email_verified_at?: string | null;
 };
+
+// Поля регистрации. Для tutor добавляются поля профиля.
+export type RegisterPayload =
+  | {
+      role: "student" | "parent";
+      email: string;
+      password: string;
+      first_name: string;
+      last_name: string;
+    }
+  | {
+      role: "tutor";
+      email: string;
+      password: string;
+      first_name: string;
+      last_name: string;
+      subjects: string[];
+      price_per_hour: number;
+      experience_years: number;
+      bio?: string;
+      education?: string;
+    };
 
 type AuthState = {
   user: User | null;
   isLoading: boolean;
   isAuth: boolean;
 
-  register: (
-    email: string,
-    password: string,
-    firstName: string,
-    lastName: string
-  ) => Promise<void>;
+  register: (payload: RegisterPayload) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
@@ -37,14 +56,8 @@ export const useAuthStore = create<AuthState>((set) => ({
   isLoading: true,
   isAuth: false,
 
-  register: async (email, password, firstName, lastName) => {
-    const res = await api.post("/auth/register", {
-      email,
-      password,
-      first_name: firstName,
-      last_name: lastName,
-      role: "student",
-    });
+  register: async (payload) => {
+    const res = await api.post("/auth/register", payload);
     const { user, tokens } = res.data;
     await AsyncStorage.setItem("access_token", tokens.access_token);
     await AsyncStorage.setItem("refresh_token", tokens.refresh_token);

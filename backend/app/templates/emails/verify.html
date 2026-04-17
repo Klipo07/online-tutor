@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Подтверждение email — AI Tutor</title>
+</head>
+<body style="margin:0; padding:0; background:#f4f6f8; font-family: Arial, Helvetica, sans-serif; color:#1f2937;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px; background:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+          <tr>
+            <td style="background:#4F46E5; padding:32px 24px; text-align:center;">
+              <h1 style="margin:0; color:#ffffff; font-size:22px; font-weight:700;">AI Tutor</h1>
+              <p style="margin:8px 0 0 0; color:rgba(255,255,255,0.85); font-size:14px;">Персональный AI-тьютор и маркетплейс репетиторов</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:28px 28px 8px 28px;">
+              <h2 style="margin:0 0 12px 0; font-size:20px; color:#111827;">Привет, {{ first_name }}!</h2>
+              <p style="margin:0 0 16px 0; font-size:15px; line-height:22px; color:#374151;">
+                Вы зарегистрировались в AI Tutor. Чтобы подтвердить email и активировать все функции, нажмите на кнопку ниже.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding:16px 28px;">
+              <a href="{{ verify_url }}"
+                 style="display:inline-block; padding:14px 28px; background:#4F46E5; color:#ffffff; font-weight:700; font-size:15px; border-radius:12px; text-decoration:none;">
+                Подтвердить email
+              </a>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:8px 28px 20px 28px;">
+              <p style="margin:0 0 8px 0; font-size:13px; color:#6b7280; line-height:18px;">
+                Или скопируйте ссылку в браузер:
+              </p>
+              <p style="margin:0 0 16px 0; font-size:12px; word-break:break-all; color:#4F46E5;">
+                {{ verify_url }}
+              </p>
+              <p style="margin:0; font-size:12px; color:#9ca3af; line-height:18px;">
+                Ссылка действительна {{ ttl_hours }} часов. Если вы не регистрировались — просто проигнорируйте письмо.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="background:#f9fafb; padding:16px 28px; text-align:center; border-top:1px solid #e5e7eb;">
+              <p style="margin:0; font-size:11px; color:#9ca3af;">
+                © AI Tutor, 2026. Это автоматическое письмо, отвечать не нужно.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

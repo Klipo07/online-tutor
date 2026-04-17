@@ -31,6 +31,21 @@ class Settings(BaseSettings):
     AGORA_APP_ID: str = ""
     AGORA_APP_CERTIFICATE: str = ""
 
+    # SMTP для верификации email (Yandex Mail по умолчанию)
+    SMTP_HOST: str = "smtp.yandex.ru"
+    SMTP_PORT: int = 465
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM_EMAIL: str = ""
+    SMTP_FROM_NAME: str = "AI Tutor"
+    # Время жизни токена верификации и cooldown на resend
+    EMAIL_VERIFY_TTL_HOURS: int = 24
+    EMAIL_VERIFY_COOLDOWN_SECONDS: int = 60
+    # Deep link для мобильного приложения
+    APP_DEEP_LINK_BASE: str = "ai-tutor://verify"
+    # Публичный URL backend — для веб-fallback при открытии из десктопа
+    APP_PUBLIC_URL: str = "http://localhost:8000"
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 

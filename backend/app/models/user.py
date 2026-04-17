@@ -33,6 +33,12 @@ class User(Base):
     bio: Mapped[str | None] = mapped_column(String(500))
     birth_date: Mapped[date | None] = mapped_column(Date)
     is_active: Mapped[bool] = mapped_column(default=True)
+    # Верификация email — NULL = не подтверждён
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime)
+    email_verify_token_hash: Mapped[str | None] = mapped_column(String(64), index=True)
+    email_verify_token_expires_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # Когда последний раз отправляли письмо — для cooldown на resend
+    last_verification_sent_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()

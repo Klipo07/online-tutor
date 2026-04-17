@@ -1,6 +1,7 @@
 """Сервис репетиторов — бизнес-логика маркетплейса."""
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, cast
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -17,29 +18,37 @@ async def get_tutors(
     page: int = 1,
     per_page: int = 20,
 ) -> tuple[list[dict], int]:
-    """Получить список репетиторов с фильтрами и пагинацией."""
+    """Получить список верифицированных репетиторов с фильтрами и пагинацией.
+
+    Фильтр по предмету на PostgreSQL использует JSONB-оператор @> и GIN-индекс
+    `ix_tutor_profiles_subjects_gin`; на SQLite (тесты) — Python-fallback.
+    """
     query = (
         select(TutorProfile)
         .options(joinedload(TutorProfile.user))
         .where(TutorProfile.is_verified == True)
     )
 
-    # Фильтр по цене
     if min_price is not None:
         query = query.where(TutorProfile.price_per_hour >= min_price)
     if max_price is not None:
         query = query.where(TutorProfile.price_per_hour <= max_price)
 
-    # Фильтр по рейтингу
     if min_rating is not None:
         query = query.where(TutorProfile.rating >= min_rating)
+
+    # Фильтр по предмету — SQL на PostgreSQL, Python на SQLite
+    dialect = db.bind.dialect.name if db.bind else ""
+    use_jsonb = subject is not None and dialect == "postgresql"
+    if use_jsonb:
+        query = query.where(TutorProfile.subjects.cast(JSONB).contains([subject]))
 
     query = query.order_by(TutorProfile.rating.desc())
     result = await db.execute(query)
     all_profiles = result.unique().scalars().all()
 
-    # Фильтр по предмету — в Python, чтобы работало на любом SQL-диалекте
-    if subject:
+    # Python-fallback для диалектов без JSONB (SQLite в тестах)
+    if subject is not None and not use_jsonb:
         all_profiles = [p for p in all_profiles if subject in (p.subjects or [])]
 
     total = len(all_profiles)
@@ -55,7 +64,7 @@ async def get_tutors(
             "subjects": profile.subjects,
             "price_per_hour": float(profile.price_per_hour),
             "experience_years": profile.experience_years,
-            "bio": profile.bio,
+            "bio": profile.user.bio,
             "education": profile.education,
             "rating": float(profile.rating),
             "reviews_count": profile.reviews_count,
@@ -86,7 +95,7 @@ async def get_tutor_by_id(db: AsyncSession, tutor_id: int) -> dict | None:
         "subjects": profile.subjects,
         "price_per_hour": float(profile.price_per_hour),
         "experience_years": profile.experience_years,
-        "bio": profile.bio,
+        "bio": profile.user.bio,
         "education": profile.education,
         "rating": float(profile.rating),
         "reviews_count": profile.reviews_count,

@@ -11,6 +11,7 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.user import User
 from app.models.chat import ChatSession, ChatMessage, AIProvider, MessageRole
+from app.models.subject import Subject
 from app.models.test import Test, TestAttempt, Difficulty
 from app.schemas.ai import (
     ChatMessageRequest,
@@ -191,14 +192,41 @@ async def generate_test(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Генерация теста по теме через AI."""
+    """Генерация теста по теме через AI с few-shot-примерами из банка."""
     provider = get_ai_provider()
+
+    # Подтягиваем 2 похожих реальных задания из банка — few-shot-примеры
+    # для AI, чтобы структура и стиль совпадали с ФИПИ-образцами
+    examples_query = (
+        select(Test)
+        .join(Subject, Subject.id == Test.subject_id)
+        .where(
+            Subject.name == data.subject,
+            Test.difficulty == Difficulty(data.difficulty),
+        )
+        .limit(2)
+    )
+    examples_res = await db.execute(examples_query)
+    example_tests = list(examples_res.scalars().all())
+
+    examples_block = ""
+    if example_tests:
+        sample_questions = []
+        for t in example_tests:
+            qs = t.questions if isinstance(t.questions, list) else []
+            sample_questions.extend(qs[:1])
+        if sample_questions:
+            examples_block = (
+                "Примеры заданий такого же формата (используй как образец стиля и сложности):\n"
+                f"{json.dumps(sample_questions, ensure_ascii=False, indent=2)}\n\n"
+            )
 
     prompt = (
         f"Сгенерируй тест из {data.num_questions} вопросов.\n\n"
         f"Предмет: {data.subject}\n"
         f"Тема: {data.topic}\n"
         f"Сложность: {data.difficulty}\n\n"
+        f"{examples_block}"
         f"Формат ответа — JSON массив:\n"
         f'[{{"question": "текст вопроса", "options": ["A", "B", "C", "D"], '
         f'"correct": "A", "type": "multiple_choice"}}]\n\n'
@@ -286,6 +314,7 @@ async def submit_test(
         test_id=test.id,
         answers=data.answers,
         score=percentage,
+        time_spent_seconds=data.time_spent_seconds,
         feedback_from_ai=f"Правильных ответов: {correct} из {total}",
     )
     db.add(attempt)

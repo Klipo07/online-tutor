@@ -59,3 +59,22 @@ class TestAttempt(Base):
     # Связи
     user: Mapped["User"] = relationship(back_populates="test_attempts")
     test: Mapped["Test"] = relationship(back_populates="attempts")
+
+
+class FeedbackRating(str, enum.Enum):
+    """Оценка сложности теста пользователем — для автокоррекции."""
+    too_easy = "too_easy"
+    ok = "ok"
+    too_hard = "too_hard"
+
+
+class TestFeedback(Base):
+    """Фидбек пользователя после прохождения теста."""
+    __tablename__ = "test_feedbacks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    test_id: Mapped[int] = mapped_column(ForeignKey("tests.id"), index=True)
+    rating: Mapped[FeedbackRating] = mapped_column(Enum(FeedbackRating))
+    comment: Mapped[str | None] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

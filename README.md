@@ -24,11 +24,12 @@
 - Сидинг демо-данных — по репетитору на каждый предмет
 
 ### Тесты и подготовка к экзаменам
-- Банк тестов ОГЭ/ЕГЭ по всем предметам
+- Банк тестов ОГЭ/ЕГЭ по всем предметам (20+ реальных заданий)
 - Каскадные фильтры: формат экзамена → предмет → номер задания → сложность
-- Таймер прохождения
+- Таймер прохождения с отображением общего времени в результатах
+- Фидбек по сложности (Легко / В самый раз / Сложно) после теста
 - Разбор ответов с AI-пояснением после сдачи
-- AI-генерация похожих заданий
+- AI-генерация похожих заданий с few-shot-примерами из банка
 
 ### Прогресс и аналитика
 - Персональная статистика (streak, часы обучения, средний балл, пройденные тесты)
@@ -54,8 +55,26 @@
 
 ### Управление занятиями
 - Бронирование с проверкой свободных слотов
-- Раздел «Мои занятия» (предстоящие / прошедшие)
+- Раздел «Мои занятия» (предстоящие / прошедшие / отменённые)
 - Фильтрация по статусу
+- Отмена бронирования с правилом 24 часов (>24ч — без причины, <24ч — обязательная причина ≥5 символов)
+- SELECT FOR UPDATE для защиты от гонок при отмене (PostgreSQL)
+- После отмены слот снова доступен для новой записи
+
+### Регистрация как репетитор
+- Единый эндпоинт `/auth/register` с discriminated union (Pydantic v2)
+- Для роли `tutor` — атомарное создание `User + TutorProfile` в одной транзакции
+- Выбор предметов, цены за час, опыта, образования, bio
+- По умолчанию `is_verified=false` — попадёт в маркетплейс после подтверждения email
+
+### Верификация email
+- После регистрации — письмо с ссылкой (Yandex SMTP, TTL 24ч)
+- Токен хэшируется SHA-256 в БД, raw только в письме (при утечке БД не активируется)
+- Отправка через FastAPI `BackgroundTasks` + `asyncio.to_thread` — event loop не блокируется
+- Deep link `ai-tutor://verify?token=…` открывает mobile-экран и дергает `GET /auth/verify-email`
+- Cooldown 60 секунд на повторную отправку, сервер отвечает 429 + `Retry-After`
+- При подтверждении у репетитора автоматически `TutorProfile.is_verified=true` — попадает в маркетплейс
+- Баннер «Email не подтверждён» на главной + экран `check-email` с таймером resend
 
 ---
 
@@ -69,12 +88,12 @@
 | SQLAlchemy 2.0 (async) | ORM |
 | PostgreSQL 16 | Основная БД |
 | Redis 7 | Кэш и очереди |
-| Alembic | Миграции БД (9 миграций) |
-| Pydantic v2 | Валидация данных (ConfigDict) |
+| Alembic | Миграции БД (13 миграций) |
+| Pydantic v2 | Валидация данных (ConfigDict, discriminated unions) |
 | JWT (python-jose) | Аутентификация |
 | Google Gemini API | Основной AI-провайдер (через OpenAI SDK) |
 | OpenAI / Anthropic API | Альтернативные AI-провайдеры |
-| Pytest | Тестирование (43+ тестов) |
+| Pytest | Тестирование (68 тестов) |
 | Docker (multi-stage) | Контейнеризация |
 
 ### Mobile
@@ -104,9 +123,9 @@ online-tutor/
 │   │   ├── schemas/             # Pydantic v2 схемы
 │   │   ├── routers/             # API эндпоинты (7 роутеров)
 │   │   └── services/            # Бизнес-логика (AI, auth, tutor, session, video, progress)
-│   ├── alembic/                 # Миграции БД (9 миграций)
+│   ├── alembic/                 # Миграции БД (13 миграций)
 │   ├── scripts/                 # Сидинг данных (seed_tutors, seed_tests)
-│   ├── tests/                   # Pytest тесты (43+)
+│   ├── tests/                   # Pytest тесты (68)
 │   ├── requirements.txt
 │   └── Dockerfile               # Multi-stage build
 │
@@ -115,12 +134,14 @@ online-tutor/
 │   │   ├── (auth)/              # Вход / Регистрация
 │   │   ├── (tabs)/              # Главная, AI-чат, Тесты, Репетиторы, Профиль
 │   │   ├── session/[id].tsx     # Экран видеозанятия
-│   │   ├── my-sessions.tsx      # Мои занятия
+│   │   ├── my-sessions.tsx      # Мои занятия + отмена
 │   │   ├── settings.tsx         # Настройки профиля
 │   │   ├── progress.tsx         # Прогресс
 │   │   ├── help.tsx             # Помощь / FAQ
-│   │   └── onboarding.tsx       # Онбординг
-│   ├── components/              # Avatar, Card, Heatmap, PasswordStrengthIndicator
+│   │   ├── onboarding.tsx       # Онбординг
+│   │   ├── check-email.tsx      # Экран после регистрации (resend + cooldown)
+│   │   └── verify.tsx           # Deep link обработчик ai-tutor://verify
+│   ├── components/              # Avatar, Card, Heatmap, CancelBookingModal, PasswordStrengthIndicator, EmailVerifyBanner
 │   ├── services/api.ts          # HTTP клиент
 │   ├── store/authStore.ts       # Zustand стор
 │   └── constants/theme.ts       # Тема и цвета
@@ -136,10 +157,12 @@ online-tutor/
 
 ### Авторизация
 ```
-POST   /api/v1/auth/register     — Регистрация
-POST   /api/v1/auth/login        — Вход (JWT)
-POST   /api/v1/auth/refresh      — Обновление токена
-POST   /api/v1/auth/logout       — Выход
+POST   /api/v1/auth/register            — Регистрация (student/parent ИЛИ tutor — discriminated union)
+POST   /api/v1/auth/login               — Вход (JWT)
+POST   /api/v1/auth/refresh             — Обновление токена
+POST   /api/v1/auth/logout              — Выход
+POST   /api/v1/auth/send-verification   — Отправить/переотправить письмо (cooldown 60с)
+GET    /api/v1/auth/verify-email?token= — Подтверждение email по токену из письма
 ```
 
 ### Пользователи
@@ -163,7 +186,7 @@ GET    /api/v1/ai/recommendations  — Персональные рекоменд
 
 ### Репетиторы
 ```
-GET    /api/v1/tutors/             — Список (фильтры: предмет, цена, рейтинг)
+GET    /api/v1/tutors/             — Список (фильтры: предмет JSONB @>, цена, рейтинг; только verified)
 GET    /api/v1/tutors/{id}         — Профиль репетитора
 GET    /api/v1/tutors/{id}/slots   — Свободные слоты на 14 дней
 GET    /api/v1/tutors/{id}/reviews — Отзывы
@@ -175,7 +198,16 @@ POST   /api/v1/tutors/{id}/review  — Оставить отзыв
 POST   /api/v1/sessions/           — Бронирование
 GET    /api/v1/sessions/           — Мои занятия
 GET    /api/v1/sessions/{id}       — Детали
-PUT    /api/v1/sessions/{id}/cancel — Отмена
+PUT    /api/v1/sessions/{id}/cancel — Отмена (правило 24 часов, 409 если уже началось)
+```
+
+### Банк тестов
+```
+GET    /api/v1/tests                      — Список тестов (фильтры: subject_id, exam_type, task_number, difficulty)
+GET    /api/v1/tests/subjects-with-tests  — Предметы с количеством тестов
+GET    /api/v1/tests/task-numbers         — Доступные номера заданий для предмета + формата
+GET    /api/v1/tests/{id}                 — Тест с вопросами (без правильных ответов)
+POST   /api/v1/tests/{id}/feedback        — Фидбек по сложности (too_easy / ok / too_hard)
 ```
 
 ### Видеозвонки
@@ -251,7 +283,7 @@ docker-compose up -d --build backend           # Изменён requirements.txt
 ### 7. Тесты
 ```bash
 cd backend
-pytest -v                    # Все тесты (43+)
+pytest -v                    # Все тесты (68)
 pytest tests/test_auth.py    # Только авторизация
 pytest -k "test_login"       # По имени
 ```
@@ -260,21 +292,21 @@ pytest -k "test_login"       # По имени
 
 ## База данных
 
-9 таблиц с полной связностью:
+10 таблиц с полной связностью:
 
 ```
 users ─────────────── tutor_profiles ──── reviews
   │                        │
-  ├── chat_sessions        ├── booking_sessions
+  ├── chat_sessions        ├── booking_sessions (+ cancellation fields)
   │     └── chat_messages  │
   │                        │
   ├── student_progress     │
-  ├── test_attempts ────── tests
+  ├── test_attempts ────── tests ──── test_feedbacks
   │
   └── subjects ──── topics
 ```
 
-9 Alembic-миграций: initial tables, reviews, exam type/task number, performance indexes, split full name, drop tokens_used, cleanup AIProvider enum, add user bio.
+13 Alembic-миграций: initial tables, reviews, exam type/task number, performance indexes, split full name, drop tokens_used, cleanup AIProvider enum, add user bio, drop tutor_profile bio, tutor subjects GIN index (JSONB), booking cancellation fields, test feedback table, email verification fields.
 
 ---
 
@@ -308,15 +340,15 @@ AI автоматически подстраивается под выбранн
 
 ## Тестирование
 
-43+ тестов покрывают ключевые модули:
+68 тестов покрывают ключевые модули:
 
 | Модуль | Тестов | Что покрыто |
 |--------|--------|------------|
-| auth | 12 | Хеширование, JWT, регистрация, вход, refresh |
+| auth | 31 | Хеширование, JWT, регистрация student/tutor (discriminated union), вход, refresh, верификация email (token, expiry, auto-promote tutor, cooldown 429) |
+| sessions | 10 | Бронирование, список, отмена (24ч-правило, double-cancel, release slot), доступ |
+| tutors | 11 | Список, фильтры по предмету (JSONB), профиль, отзывы, слоты |
 | users | 7 | Профиль, обновление, прогресс, статистика |
-| tutors | 9 | Список, фильтры, профиль, отзывы, слоты |
 | subjects | 6 | Предметы, темы, 404 |
-| sessions | 6 | Бронирование, список, отмена, доступ |
 | video | 3 | Генерация токенов |
 
 ---

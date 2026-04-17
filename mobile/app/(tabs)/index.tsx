@@ -12,6 +12,7 @@ import { useRouter, useFocusEffect } from "expo-router";
 import { useAuthStore } from "../../store/authStore";
 import { Colors } from "../../constants/theme";
 import api from "../../services/api";
+import { EmailVerifyBanner } from "../../components/EmailVerifyBanner";
 
 // Дата выпуска ЕГЭ (примерно 27 мая) — используем для отсчёта дней до экзамена
 const EGE_DATE_ISO = "2026-05-27T09:00:00Z";
@@ -126,6 +127,8 @@ export default function HomeScreen() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       showsVerticalScrollIndicator={false}
     >
+      <EmailVerifyBanner />
+
       <View style={styles.greeting}>
         <Text style={styles.greetingText}>
           Привет, {user?.full_name?.split(" ")[0] || "Ученик"}! 👋

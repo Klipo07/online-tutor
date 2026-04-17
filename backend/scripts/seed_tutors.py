@@ -83,6 +83,10 @@ async def seed_tutors(db, fake: Faker) -> None:
             last_name=last_name,
             role=UserRole.tutor,
             avatar_url=f"https://i.pravatar.cc/300?u={slug}",
+            bio=(
+                f"Преподаю {subject_name.lower()} уже несколько лет. "
+                f"{fake.paragraph(nb_sentences=2)}"
+            ),
         )
         db.add(user)
         await db.flush()
@@ -92,10 +96,6 @@ async def seed_tutors(db, fake: Faker) -> None:
             subjects=[subject_name],
             price_per_hour=Decimal(random.choice([800, 1000, 1200, 1500, 1800, 2000])),
             experience_years=random.randint(2, 15),
-            bio=(
-                f"Преподаю {subject_name.lower()} уже несколько лет. "
-                f"{fake.paragraph(nb_sentences=2)}"
-            ),
             education=_education(),
             rating=Decimal(str(round(random.uniform(4.3, 5.0), 2))),
             reviews_count=random.randint(5, 80),

@@ -91,6 +91,7 @@ async def test_tutor_user(db_session: AsyncSession) -> User:
         first_name="Анна",
         last_name="Репетиторова",
         role=UserRole.tutor,
+        bio="Опытный преподаватель математики и физики",
     )
     db_session.add(user)
     await db_session.commit()
@@ -106,7 +107,6 @@ async def test_tutor_profile(db_session: AsyncSession, test_tutor_user: User) ->
         subjects=["Математика", "Физика"],
         price_per_hour=1500,
         experience_years=8,
-        bio="Опытный преподаватель математики и физики",
         education="МГУ, мехмат",
         rating=4.8,
         reviews_count=0,

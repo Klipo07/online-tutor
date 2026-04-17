@@ -13,6 +13,7 @@ import {
 import { Stack, useRouter, useFocusEffect } from "expo-router";
 import api from "../services/api";
 import { Colors } from "../constants/theme";
+import { CancelBookingModal } from "../components/CancelBookingModal";
 
 type BookingSession = {
   id: number;
@@ -60,6 +61,7 @@ export default function MySessionsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<FilterKey>("upcoming");
+  const [cancelTarget, setCancelTarget] = useState<BookingSession | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -92,28 +94,30 @@ export default function MySessionsScreen() {
     return isPast && s.status !== "cancelled";
   });
 
-  const cancelSession = (session: BookingSession) => {
-    Alert.alert(
-      "Отменить занятие?",
-      `${session.subject_name} с ${session.tutor_name}`,
-      [
-        { text: "Нет", style: "cancel" },
-        {
-          text: "Отменить",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await api.put(`/sessions/${session.id}/cancel`);
-              load();
-            } catch (e: any) {
-              const msg = e.response?.data?.detail || "Не удалось отменить";
-              Alert.alert("Ошибка", msg);
-            }
-          },
-        },
-      ]
-    );
-  };
+  const openCancelModal = useCallback((session: BookingSession) => {
+    setCancelTarget(session);
+  }, []);
+
+  const closeCancelModal = useCallback(() => {
+    setCancelTarget(null);
+  }, []);
+
+  const confirmCancel = useCallback(
+    async (reason: string) => {
+      if (!cancelTarget) return;
+      try {
+        await api.put(`/sessions/${cancelTarget.id}/cancel`, {
+          reason: reason || null,
+        });
+        setCancelTarget(null);
+        load();
+      } catch (e: any) {
+        const msg = e.response?.data?.detail || "Не удалось отменить";
+        Alert.alert("Ошибка", msg);
+      }
+    },
+    [cancelTarget, load]
+  );
 
   const renderItem = useCallback(
     ({ item }: { item: BookingSession }) => {
@@ -142,7 +146,7 @@ export default function MySessionsScreen() {
           <View style={styles.cardFooter}>
             <Text style={styles.price}>{item.price.toFixed(0)} ₽</Text>
             {canCancel && (
-              <TouchableOpacity onPress={() => cancelSession(item)}>
+              <TouchableOpacity onPress={() => openCancelModal(item)}>
                 <Text style={styles.cancelBtn}>Отменить</Text>
               </TouchableOpacity>
             )}
@@ -150,7 +154,7 @@ export default function MySessionsScreen() {
         </TouchableOpacity>
       );
     },
-    [router]
+    [router, openCancelModal]
   );
 
   return (
@@ -200,6 +204,17 @@ export default function MySessionsScreen() {
           />
         )}
       </View>
+
+      {cancelTarget && (
+        <CancelBookingModal
+          visible={cancelTarget !== null}
+          scheduledAt={cancelTarget.scheduled_at}
+          subjectName={cancelTarget.subject_name}
+          tutorName={cancelTarget.tutor_name}
+          onConfirm={confirmCancel}
+          onClose={closeCancelModal}
+        />
+      )}
     </>
   );
 }

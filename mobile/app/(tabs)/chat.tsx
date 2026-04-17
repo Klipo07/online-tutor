@@ -11,16 +11,28 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useHeaderHeight } from "@react-navigation/elements";
 import api from "../../services/api";
 import { Colors } from "../../constants/theme";
+import { Avatar } from "../../components/Avatar";
 
 type Message = {
   id: string;
   role: "user" | "assistant";
   content: string;
+};
+
+type TutorRecommendation = {
+  id: number;
+  full_name: string;
+  subjects: string[];
+  price_per_hour: number;
+  rating: number;
+  reviews_count: number;
+  experience_years: number;
+  avatar_url: string | null;
 };
 
 const SUBJECT_ICONS: Record<string, string> = {
@@ -56,8 +68,49 @@ const MessageBubble = memo(function MessageBubble({ message }: { message: Messag
   );
 });
 
+// Карточка-рекомендация живого репетитора — показывается после 3-го сообщения
+const TutorRecommendationCard = memo(function TutorRecommendationCard({
+  tutor,
+  onBook,
+  onDismiss,
+}: {
+  tutor: TutorRecommendation;
+  onBook: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <View style={styles.recommendCard}>
+      <View style={styles.recommendHeader}>
+        <Text style={styles.recommendLabel}>💡 Нужна помощь человека?</Text>
+        <TouchableOpacity onPress={onDismiss} hitSlop={8}>
+          <Text style={styles.recommendClose}>×</Text>
+        </TouchableOpacity>
+      </View>
+      <Text style={styles.recommendSubtitle}>
+        Вижу, ты разбираешь тему всерьёз. Есть отличный живой репетитор:
+      </Text>
+      <View style={styles.recommendBody}>
+        <Avatar name={tutor.full_name} size={48} />
+        <View style={styles.recommendInfo}>
+          <Text style={styles.recommendName}>{tutor.full_name}</Text>
+          <Text style={styles.recommendSubjects} numberOfLines={1}>
+            {tutor.subjects.join(", ")}
+          </Text>
+          <Text style={styles.recommendMeta}>
+            {"\u2B50"} {tutor.rating.toFixed(1)} · {tutor.experience_years} лет · {tutor.price_per_hour}₽/час
+          </Text>
+        </View>
+      </View>
+      <TouchableOpacity style={styles.recommendButton} onPress={onBook}>
+        <Text style={styles.recommendButtonText}>Посмотреть профиль</Text>
+      </TouchableOpacity>
+    </View>
+  );
+});
+
 export default function ChatScreen() {
   const { subject: subjectParam } = useLocalSearchParams<{ subject?: string }>();
+  const router = useRouter();
   const tabBarHeight = useBottomTabBarHeight();
   const headerHeight = useHeaderHeight();
   const [subject, setSubject] = useState<string | undefined>(subjectParam);
@@ -65,6 +118,9 @@ export default function ChatScreen() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [sessionId, setSessionId] = useState<number | null>(null);
+  const [userMsgCount, setUserMsgCount] = useState(0);
+  const [recommendedTutor, setRecommendedTutor] = useState<TutorRecommendation | null>(null);
+  const [recommendDismissed, setRecommendDismissed] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
   // При смене предмета через навигацию — стартуем новую сессию, чтобы AI не путался
@@ -73,6 +129,9 @@ export default function ChatScreen() {
       setSubject(subjectParam);
       setSessionId(null);
       setMessages([buildWelcome(subjectParam)]);
+      setUserMsgCount(0);
+      setRecommendedTutor(null);
+      setRecommendDismissed(false);
     }
   }, [subjectParam]);
 
@@ -80,7 +139,24 @@ export default function ChatScreen() {
     setSubject(undefined);
     setSessionId(null);
     setMessages([buildWelcome(undefined)]);
+    setUserMsgCount(0);
+    setRecommendedTutor(null);
+    setRecommendDismissed(false);
   }, []);
+
+  // Подгружаем топ-репетитора по текущему предмету для рекомендации
+  const loadRecommendation = useCallback(async () => {
+    if (recommendDismissed || recommendedTutor) return;
+    try {
+      const params: Record<string, string | number> = { page: 1, per_page: 1 };
+      if (subject) params.subject = subject;
+      const res = await api.get("/tutors", { params });
+      const tutor = (res.data.tutors ?? [])[0];
+      if (tutor) setRecommendedTutor(tutor);
+    } catch {
+      // рекомендация — второстепенно, ошибку не показываем
+    }
+  }, [subject, recommendDismissed, recommendedTutor]);
 
   const sendMessage = async () => {
     const text = input.trim();
@@ -94,6 +170,13 @@ export default function ChatScreen() {
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setLoading(true);
+
+    // Счётчик пользовательских сообщений — на 3-м триггерим рекомендацию
+    const newCount = userMsgCount + 1;
+    setUserMsgCount(newCount);
+    if (newCount === 3) {
+      loadRecommendation();
+    }
 
     try {
       const res = await api.post("/ai/chat", {
@@ -139,6 +222,18 @@ export default function ChatScreen() {
     ? `Задайте любой вопрос по предмету «${subject}»`
     : "Задайте вопрос...";
 
+  const openTutorTab = useCallback(() => {
+    router.push("/(tabs)/tutors");
+  }, [router]);
+
+  const dismissRecommendation = useCallback(() => {
+    setRecommendedTutor(null);
+    setRecommendDismissed(true);
+  }, []);
+
+  const showRecommendation =
+    recommendedTutor !== null && !recommendDismissed && userMsgCount >= 3;
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -164,6 +259,15 @@ export default function ChatScreen() {
         keyExtractor={keyExtractor}
         contentContainerStyle={styles.messagesList}
         onContentSizeChange={scrollToEnd}
+        ListFooterComponent={
+          showRecommendation && recommendedTutor ? (
+            <TutorRecommendationCard
+              tutor={recommendedTutor}
+              onBook={openTutorTab}
+              onDismiss={dismissRecommendation}
+            />
+          ) : null
+        }
       />
 
       {loading && (
@@ -322,6 +426,77 @@ const styles = StyleSheet.create({
   sendText: {
     color: "#fff",
     fontSize: 20,
+    fontWeight: "700",
+  },
+
+  // Карточка-рекомендация репетитора
+  recommendCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 8,
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: Colors.primary + "40",
+  },
+  recommendHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  recommendLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Colors.primary,
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
+  },
+  recommendClose: {
+    fontSize: 20,
+    color: Colors.textSecondary,
+    fontWeight: "700",
+    paddingHorizontal: 4,
+  },
+  recommendSubtitle: {
+    fontSize: 14,
+    color: Colors.text,
+    marginTop: 6,
+    lineHeight: 20,
+  },
+  recommendBody: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 12,
+    gap: 12,
+  },
+  recommendInfo: {
+    flex: 1,
+  },
+  recommendName: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: Colors.text,
+  },
+  recommendSubjects: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  recommendMeta: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: 4,
+  },
+  recommendButton: {
+    backgroundColor: Colors.primary,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+    marginTop: 12,
+  },
+  recommendButtonText: {
+    color: "#fff",
+    fontSize: 14,
     fontWeight: "700",
   },
 });

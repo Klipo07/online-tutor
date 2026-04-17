@@ -1,16 +1,23 @@
 """Роутер тестов — банк заданий ОГЭ/ЕГЭ с фильтрами."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.subject import Subject
-from app.models.test import Difficulty, ExamType, Test
+from app.models.test import Difficulty, ExamType, Test, TestFeedback, FeedbackRating
 from app.models.user import User
 
 router = APIRouter()
+
+
+class TestFeedbackRequest(BaseModel):
+    """Фидбек после прохождения теста."""
+    rating: FeedbackRating
+    comment: str | None = Field(default=None, max_length=500)
 
 
 @router.get("")
@@ -126,4 +133,37 @@ async def get_test(
         "task_number": test.task_number,
         "difficulty": test.difficulty.value,
         "questions": questions,
+    }
+
+
+@router.post("/{test_id}/feedback", status_code=201)
+async def submit_feedback(
+    test_id: int,
+    data: TestFeedbackRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Оставить фидбек по тесту — лёгкий/нормальный/сложный.
+
+    Используется для сбора сигналов об оценке сложности и будущей автокоррекции.
+    """
+    # Проверяем существование теста
+    exists = await db.execute(select(Test.id).where(Test.id == test_id))
+    if exists.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Тест не найден")
+
+    feedback = TestFeedback(
+        user_id=current_user.id,
+        test_id=test_id,
+        rating=data.rating,
+        comment=(data.comment or "").strip() or None,
+    )
+    db.add(feedback)
+    await db.commit()
+    await db.refresh(feedback)
+    return {
+        "id": feedback.id,
+        "test_id": feedback.test_id,
+        "rating": feedback.rating.value,
+        "created_at": feedback.created_at.isoformat(),
     }

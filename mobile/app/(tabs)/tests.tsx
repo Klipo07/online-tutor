@@ -1,5 +1,5 @@
 // Банк тестов — ЕГЭ / ОГЭ / Обычные. Каскадный выбор + прохождение.
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -11,6 +11,8 @@ import {
 } from "react-native";
 import api from "../../services/api";
 import { Colors } from "../../constants/theme";
+
+type FeedbackRating = "too_easy" | "ok" | "too_hard";
 
 type ExamType = "ege" | "oge" | "regular";
 type Difficulty = "easy" | "medium" | "hard";
@@ -83,6 +85,25 @@ export default function TestsScreen() {
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  // Таймер прохождения: startedAt — момент входа, elapsed — для отображения
+  const startedAtRef = useRef<number | null>(null);
+  const [elapsedSec, setElapsedSec] = useState(0);
+
+  // Фидбек по сложности теста
+  const [feedbackSent, setFeedbackSent] = useState<FeedbackRating | null>(null);
+  const [sendingFeedback, setSendingFeedback] = useState(false);
+
+  // Тикаем секунды, пока идёт тест
+  useEffect(() => {
+    if (stage !== "running") return;
+    const interval = setInterval(() => {
+      if (startedAtRef.current !== null) {
+        setElapsedSec(Math.floor((Date.now() - startedAtRef.current) / 1000));
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [stage]);
+
   const resetAll = useCallback(() => {
     setStage("exam");
     setExamType(null);
@@ -95,6 +116,9 @@ export default function TestsScreen() {
     setCurrentTest(null);
     setAnswers({});
     setResult(null);
+    setElapsedSec(0);
+    setFeedbackSent(null);
+    startedAtRef.current = null;
   }, []);
 
   const goBack = useCallback(() => {
@@ -200,6 +224,9 @@ export default function TestsScreen() {
       const res = await api.get(`/tests/${t.id}`);
       setCurrentTest(res.data);
       setAnswers({});
+      setFeedbackSent(null);
+      setElapsedSec(0);
+      startedAtRef.current = Date.now();
       setStage("running");
     } catch {
       Alert.alert("Ошибка", "Не удалось загрузить тест");
@@ -212,10 +239,15 @@ export default function TestsScreen() {
   const submitTest = useCallback(async () => {
     if (!currentTest) return;
     setSubmitting(true);
+    const timeSpent =
+      startedAtRef.current !== null
+        ? Math.floor((Date.now() - startedAtRef.current) / 1000)
+        : null;
     try {
       const res = await api.post("/ai/submit-test", {
         test_id: currentTest.id,
         answers,
+        time_spent_seconds: timeSpent,
       });
       setResult(res.data);
       setStage("result");
@@ -225,6 +257,22 @@ export default function TestsScreen() {
       setSubmitting(false);
     }
   }, [currentTest, answers]);
+
+  const sendFeedback = useCallback(
+    async (rating: FeedbackRating) => {
+      if (!currentTest || feedbackSent || sendingFeedback) return;
+      setSendingFeedback(true);
+      try {
+        await api.post(`/tests/${currentTest.id}/feedback`, { rating });
+        setFeedbackSent(rating);
+      } catch {
+        Alert.alert("Ошибка", "Не удалось отправить отзыв");
+      } finally {
+        setSendingFeedback(false);
+      }
+    },
+    [currentTest, feedbackSent, sendingFeedback]
+  );
 
   const breadcrumb = useMemo(() => {
     const parts: string[] = [];
@@ -407,11 +455,18 @@ export default function TestsScreen() {
   if (stage === "running" && currentTest) {
     const allAnswered =
       Object.keys(answers).length === currentTest.questions.length;
+    const mm = String(Math.floor(elapsedSec / 60)).padStart(2, "0");
+    const ss = String(elapsedSec % 60).padStart(2, "0");
     return (
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        <TouchableOpacity onPress={goBack}>
-          <Text style={styles.backLink}>← Выйти</Text>
-        </TouchableOpacity>
+        <View style={styles.runningHeader}>
+          <TouchableOpacity onPress={goBack}>
+            <Text style={styles.backLink}>← Выйти</Text>
+          </TouchableOpacity>
+          <View style={styles.timerBadge}>
+            <Text style={styles.timerText}>⏱ {mm}:{ss}</Text>
+          </View>
+        </View>
         <Text style={styles.crumb}>{breadcrumb}</Text>
         <Text style={styles.title}>{currentTest.topic}</Text>
 
@@ -466,6 +521,8 @@ export default function TestsScreen() {
 
   // === Результат ===
   if (stage === "result" && result) {
+    const totalMin = Math.floor(elapsedSec / 60);
+    const totalSec = elapsedSec % 60;
     return (
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
         <Text style={styles.title}>Результат</Text>
@@ -474,8 +531,40 @@ export default function TestsScreen() {
           <Text style={styles.scoreLabel}>
             {result.score} из {result.total} правильно
           </Text>
+          {elapsedSec > 0 && (
+            <Text style={styles.scoreTime}>
+              Время: {totalMin} мин {totalSec} с
+            </Text>
+          )}
         </View>
         <Text style={styles.feedback}>{result.feedback}</Text>
+
+        <View style={styles.feedbackBlock}>
+          <Text style={styles.feedbackTitle}>Насколько был сложным тест?</Text>
+          {feedbackSent ? (
+            <Text style={styles.feedbackThanks}>Спасибо, отзыв учтён!</Text>
+          ) : (
+            <View style={styles.feedbackRow}>
+              {(
+                [
+                  { key: "too_easy", emoji: "😊", label: "Легко" },
+                  { key: "ok", emoji: "👌", label: "В самый раз" },
+                  { key: "too_hard", emoji: "😅", label: "Сложно" },
+                ] as { key: FeedbackRating; emoji: string; label: string }[]
+              ).map((opt) => (
+                <TouchableOpacity
+                  key={opt.key}
+                  style={styles.feedbackBtn}
+                  onPress={() => sendFeedback(opt.key)}
+                  disabled={sendingFeedback}
+                >
+                  <Text style={styles.feedbackEmoji}>{opt.emoji}</Text>
+                  <Text style={styles.feedbackLabel}>{opt.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+        </View>
 
         {result.details?.map((d: any, i: number) => (
           <View
@@ -598,6 +687,59 @@ const styles = StyleSheet.create({
   },
   scoreNumber: { fontSize: 48, fontWeight: "800", color: "#fff" },
   scoreLabel: { fontSize: 16, color: "rgba(255,255,255,0.9)", marginTop: 4 },
+  scoreTime: { fontSize: 13, color: "rgba(255,255,255,0.85)", marginTop: 8 },
+  runningHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  timerBadge: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+    marginBottom: 12,
+  },
+  timerText: { color: "#fff", fontWeight: "700", fontSize: 13 },
+  feedbackBlock: {
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  feedbackTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: Colors.text,
+    marginBottom: 10,
+  },
+  feedbackRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  feedbackBtn: {
+    flex: 1,
+    backgroundColor: Colors.inputBg,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  feedbackEmoji: { fontSize: 24 },
+  feedbackLabel: {
+    fontSize: 12,
+    color: Colors.text,
+    marginTop: 4,
+    fontWeight: "600",
+  },
+  feedbackThanks: {
+    fontSize: 13,
+    color: Colors.success,
+    fontWeight: "600",
+    textAlign: "center",
+  },
   feedback: {
     fontSize: 15,
     color: Colors.text,

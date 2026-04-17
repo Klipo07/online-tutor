@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.models.tutor import TutorProfile
 from app.models.user import User, UserRole
 
 # Контекст для хеширования паролей
@@ -70,16 +71,61 @@ async def create_user(
     first_name: str,
     last_name: str,
     role: str,
+    bio: str | None = None,
 ) -> User:
-    """Создать нового пользователя."""
+    """Создать нового пользователя (ученик/родитель)."""
     user = User(
         email=email,
         password_hash=hash_password(password),
         first_name=first_name,
         last_name=last_name,
         role=UserRole(role),
+        bio=bio,
     )
     db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+async def create_tutor_user(
+    db: AsyncSession,
+    *,
+    email: str,
+    password: str,
+    first_name: str,
+    last_name: str,
+    subjects: list[str],
+    price_per_hour: float,
+    experience_years: int,
+    bio: str | None = None,
+    education: str | None = None,
+) -> User:
+    """Создать репетитора: User + TutorProfile в одной транзакции.
+
+    Профиль создаётся с is_verified=False — активируется после подтверждения
+    email (задача 3) или вручную администратором.
+    """
+    user = User(
+        email=email,
+        password_hash=hash_password(password),
+        first_name=first_name,
+        last_name=last_name,
+        role=UserRole.tutor,
+        bio=bio,
+    )
+    db.add(user)
+    await db.flush()
+
+    profile = TutorProfile(
+        user_id=user.id,
+        subjects=subjects,
+        price_per_hour=price_per_hour,
+        experience_years=experience_years,
+        education=education,
+        is_verified=False,
+    )
+    db.add(profile)
     await db.commit()
     await db.refresh(user)
     return user

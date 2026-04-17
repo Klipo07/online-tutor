@@ -60,6 +60,8 @@ export default function RootLayout() {
         <Stack.Screen name="progress" options={{ title: "Мой прогресс" }} />
         <Stack.Screen name="help" options={{ title: "Помощь" }} />
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+        <Stack.Screen name="check-email" options={{ title: "Подтверждение email" }} />
+        <Stack.Screen name="verify" options={{ title: "Подтверждение email" }} />
       </Stack>
     </>
   );

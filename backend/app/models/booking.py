@@ -25,7 +25,12 @@ class PaymentStatus(str, enum.Enum):
 
 
 class BookingSession(Base):
-    """Забронированное занятие с репетитором."""
+    """Забронированное занятие с репетитором.
+
+    Отмена реализована как soft-delete через статус `cancelled`, с сохранением
+    причины и автора отмены — это нужно и для истории, и для потенциального
+    возврата оплаты.
+    """
     __tablename__ = "booking_sessions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -43,6 +48,11 @@ class BookingSession(Base):
     )
     agora_channel_name: Mapped[str | None] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    # Поля отмены
+    cancellation_reason: Mapped[str | None] = mapped_column(String(500))
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime)
+    cancelled_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
     # Связи
     student: Mapped["User"] = relationship(foreign_keys=[student_id])

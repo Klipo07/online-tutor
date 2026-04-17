@@ -54,19 +54,6 @@ type SlotDay = {
 
 type SubjectRef = { id: number; name: string };
 
-// Доступные предметы для фильтра
-const subjectFilters = [
-  "Все",
-  "Математика",
-  "Русский язык",
-  "Физика",
-  "Химия",
-  "Биология",
-  "История",
-  "Английский",
-  "Информатика",
-];
-
 type TutorCardProps = {
   tutor: Tutor;
   onPress: (t: Tutor) => void;
@@ -102,6 +89,7 @@ export default function TutorsScreen() {
   const [tutors, setTutors] = useState<Tutor[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSubject, setSelectedSubject] = useState("Все");
+  const [subjectFilters, setSubjectFilters] = useState<string[]>(["Все"]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -161,6 +149,17 @@ export default function TutorsScreen() {
   useEffect(() => {
     loadTutors(1, true);
   }, [loadTutors]);
+
+  // Загружаем список предметов из API один раз — для чипов-фильтров
+  useEffect(() => {
+    api.get("/subjects")
+      .then((res) => {
+        const names = (res.data as SubjectRef[]).map((s) => s.name);
+        setSubjectFilters(["Все", ...names]);
+        setSubjectCatalog(res.data);
+      })
+      .catch(() => {});
+  }, []);
 
   // Загрузка профиля и отзывов репетитора
   const openTutorProfile = useCallback(async (tutor: Tutor) => {

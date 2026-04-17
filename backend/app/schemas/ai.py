@@ -81,6 +81,7 @@ class SubmitTestRequest(BaseModel):
     """Ответы на тест."""
     test_id: int
     answers: dict[str, str]
+    time_spent_seconds: int | None = Field(default=None, ge=0, le=86400)
 
 
 class SubmitTestResponse(BaseModel):

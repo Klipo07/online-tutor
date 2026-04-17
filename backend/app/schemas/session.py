@@ -38,8 +38,18 @@ class SessionListResponse(BaseModel):
     total: int
 
 
+class SessionCancelRequest(BaseModel):
+    """Запрос на отмену занятия.
+
+    Поле `reason` опционально, но становится обязательным за <24 часа
+    до начала — логика в session_service.cancel_booking.
+    """
+    reason: str | None = Field(default=None, max_length=500)
+
+
 class SessionCancelResponse(BaseModel):
     """Ответ при отмене занятия."""
     id: int
     status: str
     message: str
+    cancellation_reason: str | None = None

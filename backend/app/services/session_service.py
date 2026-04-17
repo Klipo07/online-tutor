@@ -181,13 +181,40 @@ async def get_tutor_slots(
     return slots_by_day
 
 
+class BookingAlreadyStartedError(ValueError):
+    """Занятие уже началось или прошло — отменить нельзя."""
+    pass
+
+
 async def cancel_booking(
     db: AsyncSession,
     session_id: int,
     user_id: int,
+    reason: str | None = None,
 ) -> BookingSession:
-    """Отменить бронирование."""
-    booking = await get_session_by_id(db, session_id)
+    """Отменить бронирование.
+
+    Правила:
+    - >24ч до начала — причина необязательна
+    - <24ч до начала — причина обязательна (длина ≥5 символов)
+    - занятие уже началось/завершено — отмена невозможна (409)
+    - на PostgreSQL используется SELECT FOR UPDATE для защиты от гонок
+    """
+    dialect = db.bind.dialect.name if db.bind else ""
+    use_row_lock = dialect == "postgresql"
+
+    query = (
+        select(BookingSession)
+        .options(
+            joinedload(BookingSession.tutor).joinedload(TutorProfile.user),
+            joinedload(BookingSession.subject),
+        )
+        .where(BookingSession.id == session_id)
+    )
+    if use_row_lock:
+        query = query.with_for_update()
+
+    booking = (await db.execute(query)).unique().scalar_one_or_none()
 
     if booking is None:
         raise ValueError("Занятие не найдено")
@@ -198,13 +225,30 @@ async def cancel_booking(
     if not is_student and not is_tutor:
         raise PermissionError("Вы не можете отменить это занятие")
 
-    # Проверяем статус
     if booking.status == BookingStatus.cancelled:
         raise ValueError("Занятие уже отменено")
     if booking.status == BookingStatus.completed:
         raise ValueError("Нельзя отменить завершённое занятие")
 
+    # Время в БД хранится naive UTC — сравниваем соответствующе
+    now_utc_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+    if booking.scheduled_at <= now_utc_naive:
+        raise BookingAlreadyStartedError(
+            "Занятие уже началось — отмена невозможна"
+        )
+
+    # Отмена менее чем за 24 часа требует причины
+    hours_before = (booking.scheduled_at - now_utc_naive).total_seconds() / 3600
+    reason_clean = (reason or "").strip()
+    if hours_before < 24 and len(reason_clean) < 5:
+        raise ValueError(
+            "До начала менее 24 часов — укажите причину отмены (минимум 5 символов)"
+        )
+
     booking.status = BookingStatus.cancelled
+    booking.cancellation_reason = reason_clean or None
+    booking.cancelled_at = now_utc_naive
+    booking.cancelled_by_user_id = user_id
 
     # Если было оплачено — ставим статус возврата
     if booking.payment_status == PaymentStatus.paid:

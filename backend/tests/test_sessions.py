@@ -98,12 +98,12 @@ class TestSessionsAPI:
         test_tutor_profile: TutorProfile, test_subject: Subject,
         auth_headers: dict,
     ):
-        """Отмена бронирования."""
-        tomorrow = (_utc_naive_now() + timedelta(days=1)).isoformat()
+        """Отмена бронирования >24ч до начала — причина необязательна."""
+        in_two_days = (_utc_naive_now() + timedelta(days=2)).isoformat()
         create_res = await client.post("/api/v1/sessions/", json={
             "tutor_id": test_tutor_profile.id,
             "subject_id": test_subject.id,
-            "scheduled_at": tomorrow,
+            "scheduled_at": in_two_days,
         }, headers=auth_headers)
         session_id = create_res.json()["id"]
 
@@ -113,6 +113,93 @@ class TestSessionsAPI:
         )
         assert response.status_code == 200
         assert response.json()["status"] == "cancelled"
+
+    @pytest.mark.asyncio
+    async def test_cancel_session_less_than_24h_requires_reason(
+        self, client: AsyncClient, test_user: User,
+        test_tutor_profile: TutorProfile, test_subject: Subject,
+        auth_headers: dict,
+    ):
+        """Отмена <24ч без причины возвращает 400."""
+        in_2h = (_utc_naive_now() + timedelta(hours=2)).isoformat()
+        create_res = await client.post("/api/v1/sessions/", json={
+            "tutor_id": test_tutor_profile.id,
+            "subject_id": test_subject.id,
+            "scheduled_at": in_2h,
+        }, headers=auth_headers)
+        session_id = create_res.json()["id"]
+
+        response = await client.put(
+            f"/api/v1/sessions/{session_id}/cancel",
+            headers=auth_headers,
+        )
+        assert response.status_code == 400
+
+        # С причиной — проходит
+        response = await client.put(
+            f"/api/v1/sessions/{session_id}/cancel",
+            json={"reason": "Заболел, не смогу прийти"},
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        assert response.json()["cancellation_reason"] == "Заболел, не смогу прийти"
+
+    @pytest.mark.asyncio
+    async def test_cancel_session_double_fails(
+        self, client: AsyncClient, test_user: User,
+        test_tutor_profile: TutorProfile, test_subject: Subject,
+        auth_headers: dict,
+    ):
+        """Повторная отмена того же занятия — 400."""
+        in_two_days = (_utc_naive_now() + timedelta(days=2)).isoformat()
+        create_res = await client.post("/api/v1/sessions/", json={
+            "tutor_id": test_tutor_profile.id,
+            "subject_id": test_subject.id,
+            "scheduled_at": in_two_days,
+        }, headers=auth_headers)
+        session_id = create_res.json()["id"]
+
+        first = await client.put(
+            f"/api/v1/sessions/{session_id}/cancel",
+            headers=auth_headers,
+        )
+        assert first.status_code == 200
+
+        second = await client.put(
+            f"/api/v1/sessions/{session_id}/cancel",
+            headers=auth_headers,
+        )
+        assert second.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_cancel_session_releases_slot(
+        self, client: AsyncClient, test_user: User,
+        test_tutor_profile: TutorProfile, test_subject: Subject,
+        auth_headers: dict,
+    ):
+        """После отмены слот снова доступен в /slots."""
+        in_three_days = (_utc_naive_now() + timedelta(days=3)).replace(
+            minute=0, second=0, microsecond=0,
+        )
+        create_res = await client.post("/api/v1/sessions/", json={
+            "tutor_id": test_tutor_profile.id,
+            "subject_id": test_subject.id,
+            "scheduled_at": in_three_days.isoformat(),
+        }, headers=auth_headers)
+        session_id = create_res.json()["id"]
+
+        await client.put(
+            f"/api/v1/sessions/{session_id}/cancel",
+            headers=auth_headers,
+        )
+
+        # Слот должен стать снова доступным — проверяем что создание не падает
+        retry = await client.post("/api/v1/sessions/", json={
+            "tutor_id": test_tutor_profile.id,
+            "subject_id": test_subject.id,
+            "scheduled_at": in_three_days.isoformat(),
+        }, headers=auth_headers)
+        assert retry.status_code == 201
 
     @pytest.mark.asyncio
     async def test_get_session_forbidden(
