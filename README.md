@@ -30,6 +30,8 @@
 - Фидбек по сложности (Легко / В самый раз / Сложно) после теста
 - Разбор ответов с AI-пояснением после сдачи
 - AI-генерация похожих заданий с few-shot-примерами из банка
+- **AI-адаптивный подбор тестов** (`POST /tests/recommend`): смотрит последние 10 фидбеков по предмету и подбирает сложность — много `too_easy` → `hard`, много `too_hard` → `easy`, иначе `medium`; fallback на medium/any если пусто
+- **Конвертация LaTeX → unicode** на backend: `$x^2$` → `x²`, `\sqrt{16}` → `√16`, `\frac{1}{2}` → `1/2`, `\pi` → `π`, операторы (`\leq`, `\infty`, `\approx`) — формулы читаются без dev-build и MathJax-WebView
 
 ### Прогресс и аналитика
 - Персональная статистика (streak, часы обучения, средний балл, пройденные тесты)
@@ -55,8 +57,8 @@
 
 ### Управление занятиями
 - Бронирование с проверкой свободных слотов
-- Раздел «Мои занятия» (предстоящие / прошедшие / отменённые)
-- Фильтрация по статусу
+- Раздел «Мои занятия» — для ученика «с {tutor_name}», для тьютора «Ученик: {student_name}» (ветвление по роли, `SessionResponse` содержит оба имени)
+- Фильтрация по статусу (предстоящие / прошедшие / отменённые)
 - Отмена бронирования с правилом 24 часов (>24ч — без причины, <24ч — обязательная причина ≥5 символов)
 - SELECT FOR UPDATE для защиты от гонок при отмене (PostgreSQL)
 - После отмены слот снова доступен для новой записи
@@ -86,6 +88,13 @@
 - Cooldown 60 секунд на повторную отправку, сервер отвечает 429 + `Retry-After`
 - При подтверждении у репетитора автоматически `TutorProfile.is_verified=true` — попадает в маркетплейс
 - Баннер «Email не подтверждён» на главной + экран `check-email` с таймером resend
+- Rate-limit cooldown хранится в Redis (`INCR` + `EXPIRE`) — переживает рестарт backend'а, не сбрасывается при перезапуске контейнера
+
+### Redis-кэширование
+- `services/cache.py` — тонкая обёртка над `redis.asyncio`: `get/set/delete/delete_pattern/incr_with_ttl`, graceful fallback (если Redis недоступен — сервер работает напрямую с БД)
+- Кэшируются: `GET /tutors/` (TTL 90с, инвалидация при PATCH профиля / новом отзыве), `GET /subjects/` и `/subjects/{id}/topics` (TTL 1ч), `GET /tests/task-numbers` и `/tests/subjects-with-tests` (TTL 10 мин)
+- Инвалидация целых групп через `delete_pattern("tutors:list:*")` (Redis SCAN)
+- Версионированный префикс `ai_tutor:v1:` — чтобы при ломающих изменениях формата обойтись без `FLUSHDB`
 
 ---
 
@@ -98,13 +107,13 @@
 | FastAPI | REST API фреймворк |
 | SQLAlchemy 2.0 (async) | ORM |
 | PostgreSQL 16 | Основная БД |
-| Redis 7 | Кэш и очереди |
-| Alembic | Миграции БД (14 миграций) |
+| Redis 7 | Кэш маркетплейса / справочников + rate-limit cooldown верификации email |
+| Alembic | Миграции БД (15 миграций) |
 | Pydantic v2 | Валидация данных (ConfigDict, discriminated unions) |
 | JWT (python-jose) | Аутентификация |
-| Google Gemini API | Основной AI-провайдер (через OpenAI SDK) |
-| OpenAI / Anthropic API | Альтернативные AI-провайдеры |
-| Pytest | Тестирование (68 тестов) |
+| Anthropic Claude | Основной AI-провайдер (`claude-sonnet-4-5`) |
+| YandexGPT | Альтернативный AI-провайдер (`yandexgpt-lite/latest` через httpx) |
+| Pytest | Тестирование (102 теста, покрытие включает AI-подбор, LaTeX-конвертацию, кэш-инвалидацию) |
 | Docker (multi-stage) | Контейнеризация |
 
 ### Mobile
@@ -132,11 +141,11 @@ online-tutor/
 │   │   ├── dependencies.py      # JWT авторизация
 │   │   ├── models/              # SQLAlchemy модели (9 таблиц)
 │   │   ├── schemas/             # Pydantic v2 схемы
-│   │   ├── routers/             # API эндпоинты (7 роутеров)
-│   │   └── services/            # Бизнес-логика (AI, auth, tutor, session, video, progress)
-│   ├── alembic/                 # Миграции БД (14 миграций)
+│   │   ├── routers/             # API эндпоинты (8 роутеров)
+│   │   └── services/            # Бизнес-логика (AI, auth, tutor, session, video, progress, cache, math_format, email)
+│   ├── alembic/                 # Миграции БД (15 миграций)
 │   ├── scripts/                 # Сидинг данных (seed_tutors, seed_tests)
-│   ├── tests/                   # Pytest тесты (68)
+│   ├── tests/                   # Pytest тесты (102)
 │   ├── requirements.txt
 │   └── Dockerfile               # Multi-stage build
 │
@@ -223,10 +232,11 @@ PUT    /api/v1/sessions/{id}/cancel — Отмена (правило 24 часо
 ### Банк тестов
 ```
 GET    /api/v1/tests                      — Список тестов (фильтры: subject_id, exam_type, task_number, difficulty)
-GET    /api/v1/tests/subjects-with-tests  — Предметы с количеством тестов
-GET    /api/v1/tests/task-numbers         — Доступные номера заданий для предмета + формата
-GET    /api/v1/tests/{id}                 — Тест с вопросами (без правильных ответов)
-POST   /api/v1/tests/{id}/feedback        — Фидбек по сложности (too_easy / ok / too_hard)
+POST   /api/v1/tests/recommend            — AI-адаптивный подбор: сложность по фидбекам + рандомная выборка
+GET    /api/v1/tests/subjects-with-tests  — Предметы с количеством тестов (кэш 10 мин)
+GET    /api/v1/tests/task-numbers         — Доступные номера заданий для предмета + формата (кэш 10 мин)
+GET    /api/v1/tests/{id}                 — Тест с вопросами (без ответов, LaTeX → unicode)
+POST   /api/v1/tests/{id}/feedback        — Фидбек по сложности (too_easy / ok / too_hard) — вход для `/recommend`
 ```
 
 ### Видеозвонки
@@ -260,11 +270,12 @@ cp .env.example .env
 
 ### 3. Запуск через Docker
 ```bash
-docker-compose up -d
-docker exec ai_tutor_backend alembic upgrade head  # Миграции (первый раз)
+docker-compose up -d            # поднимет db + redis + backend
+docker exec ai_tutor_backend alembic upgrade head  # Миграции (первый раз и после pull)
 ```
 - Сервер: http://localhost:8000
 - Swagger UI: http://localhost:8000/docs
+- Redis: `localhost:6379` (опционально — для кэша; если недоступен, backend работает без кэша)
 
 ### 4. Сидинг демо-данных
 ```bash
@@ -302,8 +313,9 @@ docker-compose up -d --build backend           # Изменён requirements.txt
 ### 7. Тесты
 ```bash
 cd backend
-pytest -v                    # Все тесты (68)
+pytest -v                    # Все тесты (102)
 pytest tests/test_auth.py    # Только авторизация
+pytest tests/test_tests.py   # AI-подбор + LaTeX
 pytest -k "test_login"       # По имени
 ```
 
@@ -325,7 +337,7 @@ users ─────────────── tutor_profiles ──── 
   └── subjects ──── topics
 ```
 
-14 Alembic-миграций: initial tables, reviews, exam type/task number, performance indexes, split full name, drop tokens_used, cleanup AIProvider enum, add user bio, drop tutor_profile bio, tutor subjects GIN index (JSONB), booking cancellation fields, test feedback table, email verification fields, **tutor working_hours JSONB**.
+15 Alembic-миграций: initial tables, reviews, exam type/task number, performance indexes, split full name, drop tokens_used, cleanup AIProvider enum, add user bio, drop tutor_profile bio, tutor subjects GIN index (JSONB), booking cancellation fields, test feedback table, email verification fields, tutor working_hours JSONB, **backfill is_verified=true для всех тьюторов** (одноразовая, до настройки SMTP).
 
 ---
 
@@ -334,12 +346,11 @@ users ─────────────── tutor_profiles ──── 
 Архитектура с абстрактным провайдером — переключение одной переменной:
 
 ```env
-AI_PROVIDER=gemini       # Gemini 2.0 Flash (основной, бесплатный)
-AI_PROVIDER=openai       # GPT-4o-mini
-AI_PROVIDER=anthropic    # Claude Sonnet
+AI_PROVIDER=anthropic    # Claude Sonnet 4.5 (основной)
+AI_PROVIDER=yandex       # YandexGPT Lite (fallback для ru-сегмента)
 ```
 
-Все провайдеры реализуют единый интерфейс `BaseAIProvider`. Gemini работает через OpenAI-совместимый endpoint (используется AsyncOpenAI клиент).
+Все провайдеры реализуют единый интерфейс `BaseAIProvider`. Anthropic — через официальный SDK, Yandex — через httpx к Foundation Models API.
 
 AI автоматически подстраивается под выбранный предмет — системный промпт генерируется динамически.
 
@@ -359,7 +370,7 @@ AI автоматически подстраивается под выбранн
 
 ## Тестирование
 
-68 тестов покрывают ключевые модули:
+102 теста покрывают ключевые модули:
 
 | Модуль | Тестов | Что покрыто |
 |--------|--------|------------|
@@ -369,6 +380,9 @@ AI автоматически подстраивается под выбранн
 | users | 7 | Профиль, обновление, прогресс, статистика |
 | subjects | 6 | Предметы, темы, 404 |
 | video | 3 | Генерация токенов |
+| math_format | 20 | LaTeX → unicode: степени, корни, дроби, греческие, операторы, format_questions |
+| tests (recommend) | 9 | Адаптивный подбор: no-feedback → medium, too_easy → hard, too_hard → easy, fallback, изоляция по предметам, LaTeX в `/tests/{id}` |
+| cache_invalidation | 5 | PATCH профиля / schedule / review сбрасывают кэш маркетплейса |
 
 ---
 
