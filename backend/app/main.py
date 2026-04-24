@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.routers import auth, users, tutors, sessions, ai, subjects, tests, video
+from app.services import cache
 
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -48,3 +49,9 @@ app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 async def root():
     """Проверка работоспособности сервера."""
     return {"status": "ok", "message": "AI Tutor API работает"}
+
+
+@app.on_event("shutdown")
+async def _close_cache() -> None:
+    """Закрыть Redis-клиент при завершении приложения."""
+    await cache.close()

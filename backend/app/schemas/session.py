@@ -20,6 +20,7 @@ class SessionResponse(BaseModel):
     tutor_id: int
     subject_id: int
     tutor_name: str
+    student_name: str
     subject_name: str
     scheduled_at: datetime
     duration_minutes: int

@@ -93,6 +93,7 @@ async def get_user_sessions(
     query = select(BookingSession).options(
         joinedload(BookingSession.tutor).joinedload(TutorProfile.user),
         joinedload(BookingSession.subject),
+        joinedload(BookingSession.student),
     )
 
     if tutor_profile_id:
@@ -124,6 +125,7 @@ async def get_session_by_id(
         .options(
             joinedload(BookingSession.tutor).joinedload(TutorProfile.user),
             joinedload(BookingSession.subject),
+            joinedload(BookingSession.student),
         )
         .where(BookingSession.id == session_id)
     )

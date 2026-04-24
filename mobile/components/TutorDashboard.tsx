@@ -42,18 +42,22 @@ function formatWhen(iso: string): string {
 
 export default function TutorDashboard() {
   const user = useAuthStore((s) => s.user);
+  const isAuth = useAuthStore((s) => s.isAuth);
   const router = useRouter();
   const [stats, setStats] = useState<TutorStats | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
+    // Не дёргаем /tutors/me/* если уже разлогинились — экран может быть ещё
+    // смонтирован в момент logout, 401 вылетел бы в глобальный interceptor
+    if (!isAuth) return;
     try {
       const res = await api.get<TutorStats>("/tutors/me/stats");
       setStats(res.data);
     } catch {
       // Просто не показываем блок статистики при ошибке
     }
-  }, []);
+  }, [isAuth]);
 
   useFocusEffect(
     useCallback(() => {

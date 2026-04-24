@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     # База данных
     DATABASE_URL: str = "postgresql+asyncpg://ai_tutor:ai_tutor_pass@localhost/ai_tutor"
 
+    # Redis (кэш; если пустой URL — кэш отключён и работает только БД)
+    REDIS_URL: str = "redis://redis:6379/0"
+
     # JWT аутентификация
     SECRET_KEY: str = "change-me-in-production"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30

@@ -14,6 +14,7 @@ import { Stack, useRouter, useFocusEffect } from "expo-router";
 import api from "../services/api";
 import { Colors } from "../constants/theme";
 import { CancelBookingModal } from "../components/CancelBookingModal";
+import { useAuthStore } from "../store/authStore";
 
 type BookingSession = {
   id: number;
@@ -21,6 +22,7 @@ type BookingSession = {
   tutor_id: number;
   subject_id: number;
   tutor_name: string;
+  student_name: string;
   subject_name: string;
   scheduled_at: string;
   duration_minutes: number;
@@ -57,6 +59,8 @@ function formatDateTime(iso: string): { date: string; time: string } {
 
 export default function MySessionsScreen() {
   const router = useRouter();
+  const { user } = useAuthStore();
+  const isTutor = user?.role === "tutor";
   const [sessions, setSessions] = useState<BookingSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -137,7 +141,9 @@ export default function MySessionsScreen() {
               </Text>
             </View>
           </View>
-          <Text style={styles.tutor}>с {item.tutor_name}</Text>
+          <Text style={styles.tutor}>
+            {isTutor ? `Ученик: ${item.student_name}` : `с ${item.tutor_name}`}
+          </Text>
           <View style={styles.metaRow}>
             <Text style={styles.meta}>📅 {date}</Text>
             <Text style={styles.meta}>🕑 {time}</Text>
@@ -185,7 +191,7 @@ export default function MySessionsScreen() {
             <Text style={styles.emptyText}>
               {filter === "upcoming" ? "Нет предстоящих занятий" : filter === "past" ? "Ещё нет прошедших" : "Нет отменённых"}
             </Text>
-            {filter === "upcoming" && (
+            {filter === "upcoming" && !isTutor && (
               <TouchableOpacity
                 style={styles.ctaButton}
                 onPress={() => router.push("/(tabs)/tutors")}

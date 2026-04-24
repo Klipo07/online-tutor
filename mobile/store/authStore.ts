@@ -78,8 +78,10 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   logout: async () => {
-    await AsyncStorage.multiRemove(["access_token", "refresh_token"]);
+    // Сначала сбрасываем state — защищает от race condition: экраны с
+    // useFocusEffect, проверяющие isAuth, не дёргают API после чистки токена
     set({ user: null, isAuth: false });
+    await AsyncStorage.multiRemove(["access_token", "refresh_token"]);
   },
 
   setUser: (user) => set({ user }),

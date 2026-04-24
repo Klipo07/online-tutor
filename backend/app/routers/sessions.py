@@ -32,6 +32,7 @@ def _session_to_response(booking) -> SessionResponse:
         tutor_id=booking.tutor_id,
         subject_id=booking.subject_id,
         tutor_name=booking.tutor.user.full_name,
+        student_name=booking.student.full_name if booking.student else "",
         subject_name=booking.subject.name,
         scheduled_at=booking.scheduled_at,
         duration_minutes=booking.duration_minutes,

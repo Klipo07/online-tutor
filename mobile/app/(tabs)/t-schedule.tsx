@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import api from "../../services/api";
 import { Colors } from "../../constants/theme";
+import { useAuthStore } from "../../store/authStore";
 
 type DayKey = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
 type Schedule = Record<DayKey, [number, number] | null>;
@@ -28,11 +29,13 @@ const DAYS: { key: DayKey; label: string }[] = [
 const DEFAULT_RANGE: [number, number] = [9, 21];
 
 export default function TutorScheduleScreen() {
+  const isAuth = useAuthStore((s) => s.isAuth);
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
+    if (!isAuth) return;
     try {
       const res = await api.get<Schedule>("/tutors/me/schedule");
       setSchedule(res.data);
@@ -41,7 +44,7 @@ export default function TutorScheduleScreen() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isAuth]);
 
   useEffect(() => {
     load();

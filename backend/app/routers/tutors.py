@@ -26,8 +26,12 @@ from app.services.tutor_service import (
     get_tutor_stats,
 )
 from app.services.session_service import get_tutor_slots
+from app.services import cache
 
 router = APIRouter()
+
+TUTORS_LIST_TTL = 90  # маркетплейс — свежее, чем справочники
+TUTOR_DETAIL_TTL = 120
 
 
 async def _get_my_tutor_profile(
@@ -62,14 +66,26 @@ async def list_tutors(
     db: AsyncSession = Depends(get_db),
 ):
     """Список репетиторов с фильтрами и пагинацией."""
+    # Кэшируем отдельно каждую комбинацию фильтров — они немного, а попадание
+    # на популярные варианты (без фильтров, одна page=1) закрывает 80%+ трафика
+    cache_key = (
+        f"tutors:list:s={subject or ''}:min={min_price or ''}:max={max_price or ''}"
+        f":r={min_rating or ''}:p={page}:pp={per_page}"
+    )
+    cached = await cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     tutors, total = await get_tutors(
         db, subject=subject, min_price=min_price,
         max_price=max_price, min_rating=min_rating,
         page=page, per_page=per_page,
     )
-    return TutorListResponse(
+    response = TutorListResponse(
         tutors=tutors, total=total, page=page, per_page=per_page,
     )
+    await cache.set(cache_key, response.model_dump(), ttl=TUTORS_LIST_TTL)
+    return response
 
 
 # === Приватные /me/* эндпоинты репетитора ===
@@ -105,6 +121,8 @@ async def update_my_schedule(
     }
     await db.commit()
     await db.refresh(profile)
+    # Слоты в деталях репетитора зависят от расписания — сбрасываем кэш деталей
+    await cache.delete(f"tutors:detail:{profile.id}")
     return profile.working_hours
 
 
@@ -125,6 +143,10 @@ async def update_my_tutor_profile(
     for field, value in update_data.items():
         setattr(profile, field, value)
     await db.commit()
+
+    # Инвалидируем кэш маркетплейса — пагинированные списки и детальный профиль
+    await cache.delete_pattern("tutors:list:*")
+    await cache.delete(f"tutors:detail:{profile.id}")
 
     # Возвращаем в формате TutorResponse — через сервис, с join на user
     tutor = await get_tutor_by_id(db, profile.id)
@@ -191,6 +213,9 @@ async def add_review(
         db, tutor_id=tutor_id, student_id=current_user.id,
         rating=data.rating, comment=data.comment,
     )
+    # Рейтинг меняется — инвалидируем списки и детали
+    await cache.delete_pattern("tutors:list:*")
+    await cache.delete(f"tutors:detail:{tutor_id}")
 
     return ReviewResponse(
         id=review.id,

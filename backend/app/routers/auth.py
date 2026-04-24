@@ -36,6 +36,7 @@ from app.services.email_service import (
     send_verification_email,
     token_expiry,
 )
+from app.services import cache
 
 router = APIRouter()
 
@@ -177,11 +178,24 @@ async def send_verification(
             detail="Email уже подтверждён",
         )
 
+    # Rate-limit: отдельный ключ в Redis переживает рестарт backend'а,
+    # что закрывает дыру с «спамом после рестарта» у in-memory-реализации
+    cooldown = settings.EMAIL_VERIFY_COOLDOWN_SECONDS
+    rl_key = f"email_verify:cooldown:user:{current_user.id}"
+    count = await cache.incr_with_ttl(rl_key, ttl=cooldown)
+    if count > 1:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Письмо уже отправлено. Повтор возможен через {cooldown} сек.",
+            headers={"Retry-After": str(cooldown)},
+        )
+
+    # Fallback: если Redis недоступен, count всегда =1 — тогда полагаемся
+    # на last_verification_sent_at из БД
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     last_sent = current_user.last_verification_sent_at
     if last_sent is not None:
         elapsed = (now - last_sent).total_seconds()
-        cooldown = settings.EMAIL_VERIFY_COOLDOWN_SECONDS
         if elapsed < cooldown:
             retry_after = int(cooldown - elapsed)
             raise HTTPException(

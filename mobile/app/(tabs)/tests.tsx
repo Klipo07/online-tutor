@@ -46,6 +46,7 @@ type FullTest = {
 
 type Stage =
   | "exam"
+  | "mode"
   | "subject"
   | "task"
   | "difficulty"
@@ -53,6 +54,8 @@ type Stage =
   | "loading"
   | "running"
   | "result";
+
+type PickMode = "manual" | "ai";
 
 const EXAM_LABELS: Record<ExamType, string> = {
   ege: "ЕГЭ",
@@ -68,11 +71,14 @@ const DIFFICULTY_LABELS: Record<Difficulty, string> = {
 
 export default function TestsScreen() {
   const [stage, setStage] = useState<Stage>("exam");
+  const [mode, setMode] = useState<PickMode>("manual");
 
   const [examType, setExamType] = useState<ExamType | null>(null);
   const [subject, setSubject] = useState<SubjectItem | null>(null);
   const [taskNumber, setTaskNumber] = useState<number | null>(null);
   const [difficulty, setDifficulty] = useState<Difficulty | null>(null);
+  // Сложность, которую подобрал AI — показываем плашку «AI подобрал: medium»
+  const [aiDifficulty, setAiDifficulty] = useState<Difficulty | null>(null);
 
   const [subjects, setSubjects] = useState<SubjectItem[]>([]);
   const [taskNumbers, setTaskNumbers] = useState<TaskNumberItem[]>([]);
@@ -106,10 +112,12 @@ export default function TestsScreen() {
 
   const resetAll = useCallback(() => {
     setStage("exam");
+    setMode("manual");
     setExamType(null);
     setSubject(null);
     setTaskNumber(null);
     setDifficulty(null);
+    setAiDifficulty(null);
     setSubjects([]);
     setTaskNumbers([]);
     setTests([]);
@@ -122,9 +130,12 @@ export default function TestsScreen() {
   }, []);
 
   const goBack = useCallback(() => {
-    if (stage === "subject") {
+    if (stage === "mode") {
       setStage("exam");
       setExamType(null);
+    } else if (stage === "subject") {
+      setStage("mode");
+      setSubject(null);
     } else if (stage === "task") {
       setStage("subject");
       setSubject(null);
@@ -132,46 +143,73 @@ export default function TestsScreen() {
       setStage("task");
       setTaskNumber(null);
     } else if (stage === "list") {
-      setStage("difficulty");
-      setDifficulty(null);
+      // Для AI-подбора назад к выбору предмета; для manual — к сложности
+      if (mode === "ai") {
+        setAiDifficulty(null);
+        setStage("subject");
+      } else {
+        setStage("difficulty");
+        setDifficulty(null);
+      }
     } else if (stage === "running" || stage === "result") {
       setCurrentTest(null);
       setAnswers({});
       setResult(null);
       setStage("list");
     }
-  }, [stage]);
+  }, [stage, mode]);
 
-  // Шаг: Выбор экзамена → загрузка предметов
-  const pickExam = useCallback(async (type: ExamType) => {
+  // Шаг: Выбор экзамена → выбор режима (AI vs manual)
+  const pickExam = useCallback((type: ExamType) => {
     setExamType(type);
-    setLoading(true);
-    try {
-      const res = await api.get("/tests/subjects-with-tests", {
-        params: { exam_type: type },
-      });
-      setSubjects(res.data);
-      setStage("subject");
-    } catch {
-      Alert.alert("Ошибка", "Не удалось загрузить предметы");
-      setExamType(null);
-    } finally {
-      setLoading(false);
-    }
+    setStage("mode");
   }, []);
 
-  // Шаг: Выбор предмета → загрузка номеров заданий
+  // Шаг: Выбор режима → загрузка предметов
+  const pickMode = useCallback(
+    async (m: PickMode) => {
+      if (!examType) return;
+      setMode(m);
+      setLoading(true);
+      try {
+        const res = await api.get("/tests/subjects-with-tests", {
+          params: { exam_type: examType },
+        });
+        setSubjects(res.data);
+        setStage("subject");
+      } catch {
+        Alert.alert("Ошибка", "Не удалось загрузить предметы");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [examType]
+  );
+
+  // Шаг: Выбор предмета → (AI: подбор тестов; Manual: загрузка номеров заданий)
   const pickSubject = useCallback(
     async (s: SubjectItem) => {
       if (!examType) return;
       setSubject(s);
       setLoading(true);
       try {
-        const res = await api.get("/tests/task-numbers", {
-          params: { subject_id: s.id, exam_type: examType },
-        });
-        setTaskNumbers(res.data);
-        setStage("task");
+        if (mode === "ai") {
+          // AI подбор — бэк сам решает сложность по фидбекам
+          const res = await api.post("/tests/recommend", {
+            subject_id: s.id,
+            exam_type: examType,
+            limit: 5,
+          });
+          setAiDifficulty(res.data.difficulty as Difficulty);
+          setTests(res.data.tests);
+          setStage("list");
+        } else {
+          const res = await api.get("/tests/task-numbers", {
+            params: { subject_id: s.id, exam_type: examType },
+          });
+          setTaskNumbers(res.data);
+          setStage("task");
+        }
       } catch {
         Alert.alert("Ошибка", "Не удалось загрузить задания");
         setSubject(null);
@@ -179,7 +217,7 @@ export default function TestsScreen() {
         setLoading(false);
       }
     },
-    [examType]
+    [examType, mode]
   );
 
   // Шаг: Выбор задания → переход к сложности
@@ -277,11 +315,12 @@ export default function TestsScreen() {
   const breadcrumb = useMemo(() => {
     const parts: string[] = [];
     if (examType) parts.push(EXAM_LABELS[examType]);
+    if (stage !== "exam" && stage !== "mode" && mode === "ai") parts.push("AI");
     if (subject) parts.push(subject.name);
     if (taskNumber !== null) parts.push(`№${taskNumber}`);
     if (difficulty) parts.push(DIFFICULTY_LABELS[difficulty]);
     return parts.join(" · ");
-  }, [examType, subject, taskNumber, difficulty]);
+  }, [examType, subject, taskNumber, difficulty, stage, mode]);
 
   if (loading && stage !== "running") {
     return (
@@ -314,6 +353,39 @@ export default function TestsScreen() {
             </Text>
           </TouchableOpacity>
         ))}
+      </ScrollView>
+    );
+  }
+
+  // === Шаг 1.5: Выбор режима (AI-подбор или вручную) ===
+  if (stage === "mode") {
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        <TouchableOpacity onPress={goBack}>
+          <Text style={styles.backLink}>← Назад</Text>
+        </TouchableOpacity>
+        <Text style={styles.crumb}>{breadcrumb}</Text>
+        <Text style={styles.title}>Как подобрать тесты?</Text>
+        <Text style={styles.subtitle}>
+          AI адаптирует сложность под ваши предыдущие фидбеки
+        </Text>
+
+        <TouchableOpacity
+          style={[styles.bigCard, styles.aiCard]}
+          onPress={() => pickMode("ai")}
+        >
+          <Text style={styles.bigCardTitle}>✨ AI-подбор</Text>
+          <Text style={styles.bigCardHint}>
+            Автоматически подберу 5 тестов под ваш уровень
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.bigCard} onPress={() => pickMode("manual")}>
+          <Text style={styles.bigCardTitle}>Выбрать вручную</Text>
+          <Text style={styles.bigCardHint}>
+            Предмет → номер задания → сложность
+          </Text>
+        </TouchableOpacity>
       </ScrollView>
     );
   }
@@ -412,6 +484,14 @@ export default function TestsScreen() {
         </TouchableOpacity>
         <Text style={styles.crumb}>{breadcrumb}</Text>
         <Text style={styles.title}>Тесты ({tests.length})</Text>
+
+        {mode === "ai" && aiDifficulty && (
+          <View style={styles.aiBadge}>
+            <Text style={styles.aiBadgeText}>
+              ✨ AI подобрал: {DIFFICULTY_LABELS[aiDifficulty]}
+            </Text>
+          </View>
+        )}
 
         {tests.length === 0 ? (
           <>
@@ -627,6 +707,18 @@ const styles = StyleSheet.create({
   },
   bigCardTitle: { fontSize: 20, fontWeight: "700", color: Colors.text },
   bigCardHint: { fontSize: 13, color: Colors.textSecondary, marginTop: 4 },
+  aiCard: {
+    backgroundColor: Colors.primary + "10",
+    borderColor: Colors.primary,
+  },
+  aiBadge: {
+    backgroundColor: Colors.primary + "18",
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 12,
+  },
+  aiBadgeText: { color: Colors.primary, fontSize: 13, fontWeight: "700" },
   row: {
     backgroundColor: Colors.surface,
     borderRadius: 12,

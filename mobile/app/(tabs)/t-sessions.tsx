@@ -12,6 +12,7 @@ import {
 import { useFocusEffect, useRouter } from "expo-router";
 import api from "../../services/api";
 import { Colors } from "../../constants/theme";
+import { useAuthStore } from "../../store/authStore";
 
 type SessionItem = {
   id: number;
@@ -19,6 +20,7 @@ type SessionItem = {
   tutor_id: number;
   subject_id: number;
   tutor_name: string;
+  student_name: string;
   subject_name: string;
   scheduled_at: string;
   duration_minutes: number;
@@ -66,12 +68,14 @@ const STATUS_COLOR: Record<SessionItem["status"], string> = {
 
 export default function TutorSessionsScreen() {
   const router = useRouter();
+  const isAuth = useAuthStore((s) => s.isAuth);
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<Filter>("upcoming");
 
   const load = useCallback(async () => {
+    if (!isAuth) return;
     try {
       const res = await api.get<{ sessions: SessionItem[] }>("/sessions");
       setSessions(res.data.sessions);
@@ -80,7 +84,7 @@ export default function TutorSessionsScreen() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isAuth]);
 
   useFocusEffect(
     useCallback(() => {
@@ -125,7 +129,10 @@ export default function TutorSessionsScreen() {
           <Text style={styles.cardDay}>{formatDay(item.scheduled_at)}</Text>
           <Text style={styles.cardTime}>{formatTime(item.scheduled_at)}</Text>
         </View>
-        <Text style={styles.cardSubject}>{item.subject_name}</Text>
+        <Text style={styles.cardSubject}>
+          {item.subject_name}
+          {item.student_name ? ` · ${item.student_name}` : ""}
+        </Text>
         <View style={styles.cardFooter}>
           <View
             style={[
