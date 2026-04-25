@@ -18,7 +18,16 @@ export default function ProfileScreen() {
   const handleLogout = () => {
     Alert.alert("Выход", "Вы уверены, что хотите выйти?", [
       { text: "Отмена", style: "cancel" },
-      { text: "Выйти", style: "destructive", onPress: logout },
+      {
+        text: "Выйти",
+        style: "destructive",
+        onPress: async () => {
+          await logout();
+          // Явный редирект — Redirect из (tabs)/_layout тоже сработает,
+          // но replace страхует от гонки с внутренним рендером текущего таба
+          router.replace("/(auth)/login");
+        },
+      },
     ]);
   };
 

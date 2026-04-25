@@ -1,5 +1,6 @@
-// Экран видеозанятия — подключение к Agora-каналу
-import { useState, useEffect } from "react";
+// Экран занятия — meeting-link flow вместо встроенного видео
+// Тьютор вставляет ссылку на Zoom/Meet/Jitsi, ученик её открывает
+import { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -7,103 +8,85 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  TextInput,
+  ScrollView,
+  Linking,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import api from "../../services/api";
+import { useAuthStore } from "../../store/authStore";
 import { Colors } from "../../constants/theme";
 
 type SessionData = {
   id: number;
+  student_id: number;
+  tutor_id: number;
   tutor_name: string;
+  student_name: string;
   subject_name: string;
   scheduled_at: string;
   duration_minutes: number;
   status: string;
-  agora_channel_name: string;
-};
-
-type VideoToken = {
-  token: string;
-  channel_name: string;
-  uid: number;
-  app_id: string;
+  meeting_link: string | null;
 };
 
 export default function SessionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const user = useAuthStore((s) => s.user);
+  const isTutor = user?.role === "tutor";
 
   const [session, setSession] = useState<SessionData | null>(null);
-  const [videoToken, setVideoToken] = useState<VideoToken | null>(null);
   const [loading, setLoading] = useState(true);
-  const [connecting, setConnecting] = useState(false);
-  const [connected, setConnected] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
+  const [linkInput, setLinkInput] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  // Загрузка данных занятия
-  useEffect(() => {
-    loadSession();
-  }, [id]);
-
-  // Таймер занятия
-  useEffect(() => {
-    if (!connected) return;
-    const timer = setInterval(() => setElapsed((prev) => prev + 1), 1000);
-    return () => clearInterval(timer);
-  }, [connected]);
-
-  const loadSession = async () => {
+  const loadSession = useCallback(async () => {
     try {
-      const res = await api.get(`/sessions/${id}`);
+      const res = await api.get<SessionData>(`/sessions/${id}`);
       setSession(res.data);
+      setLinkInput(res.data.meeting_link || "");
     } catch {
       Alert.alert("Ошибка", "Не удалось загрузить данные занятия");
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
 
-  // Подключение к видеозвонку
-  const joinCall = async () => {
-    setConnecting(true);
+  useEffect(() => {
+    loadSession();
+  }, [loadSession]);
+
+  const saveLink = async () => {
+    const trimmed = linkInput.trim();
+    // Простая валидация — должен начинаться с http/https
+    if (trimmed && !/^https?:\/\//i.test(trimmed)) {
+      Alert.alert("Неверная ссылка", "Ссылка должна начинаться с http:// или https://");
+      return;
+    }
+    setSaving(true);
     try {
-      const res = await api.post("/video/token", { session_id: Number(id) });
-      setVideoToken(res.data);
-      setConnected(true);
-
-      // В полной версии здесь инициализируется Agora RTC SDK:
-      // const engine = createAgoraRtcEngine();
-      // engine.initialize({ appId: res.data.app_id });
-      // engine.joinChannel(res.data.token, res.data.channel_name, res.data.uid);
+      const res = await api.put<SessionData>(`/sessions/${id}/meeting-link`, {
+        meeting_link: trimmed || null,
+      });
+      setSession(res.data);
+      Alert.alert("Сохранено", trimmed ? "Ученик увидит ссылку" : "Ссылка удалена");
     } catch (e: any) {
-      const msg = e.response?.data?.detail || "Не удалось подключиться";
+      const msg = e?.response?.data?.detail || "Не удалось сохранить";
       Alert.alert("Ошибка", msg);
     } finally {
-      setConnecting(false);
+      setSaving(false);
     }
   };
 
-  // Завершение звонка
-  const leaveCall = () => {
-    Alert.alert("Завершить занятие", "Вы уверены?", [
-      { text: "Отмена", style: "cancel" },
-      {
-        text: "Завершить",
-        style: "destructive",
-        onPress: () => {
-          setConnected(false);
-          setVideoToken(null);
-          router.back();
-        },
-      },
-    ]);
-  };
-
-  // Форматирование времени
-  const formatTime = (seconds: number) => {
-    const m = Math.floor(seconds / 60).toString().padStart(2, "0");
-    const s = (seconds % 60).toString().padStart(2, "0");
-    return `${m}:${s}`;
+  const openLink = async () => {
+    if (!session?.meeting_link) return;
+    const can = await Linking.canOpenURL(session.meeting_link);
+    if (!can) {
+      Alert.alert("Не удалось открыть", "Проверьте ссылку или установите нужное приложение");
+      return;
+    }
+    await Linking.openURL(session.meeting_link);
   };
 
   const formatDate = (dateStr: string) => {
@@ -135,129 +118,138 @@ export default function SessionScreen() {
     );
   }
 
-  // Экран активного звонка
-  if (connected) {
-    return (
-      <View style={styles.callContainer}>
-        {/* Область видео — заглушка для MVP */}
-        <View style={styles.videoArea}>
-          <View style={styles.remoteVideo}>
-            <Text style={styles.videoPlaceholder}>
-              {session.tutor_name}
-            </Text>
-            <Text style={styles.videoSubtext}>Видео репетитора</Text>
-          </View>
-          <View style={styles.localVideo}>
-            <Text style={styles.localVideoText}>Вы</Text>
-          </View>
-        </View>
+  const counterpartyName = isTutor ? session.student_name : session.tutor_name;
+  const counterpartyLabel = isTutor ? "Ученик" : "Репетитор";
 
-        {/* Информация о занятии */}
-        <View style={styles.callInfo}>
-          <Text style={styles.callSubject}>{session.subject_name}</Text>
-          <Text style={styles.callTimer}>{formatTime(elapsed)}</Text>
-        </View>
-
-        {/* Кнопки управления */}
-        <View style={styles.callControls}>
-          <TouchableOpacity style={styles.controlButton}>
-            <Text style={styles.controlIcon}>🎤</Text>
-            <Text style={styles.controlLabel}>Микрофон</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.controlButton}>
-            <Text style={styles.controlIcon}>📷</Text>
-            <Text style={styles.controlLabel}>Камера</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.controlButton}>
-            <Text style={styles.controlIcon}>💬</Text>
-            <Text style={styles.controlLabel}>Чат</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.controlButton, styles.endCallButton]}
-            onPress={leaveCall}
-          >
-            <Text style={styles.controlIcon}>📞</Text>
-            <Text style={[styles.controlLabel, { color: "#fff" }]}>Завершить</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
-
-  // Экран ожидания — до подключения
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.container} contentContainerStyle={{ padding: 24 }}>
       <View style={styles.sessionInfo}>
         <View style={styles.sessionAvatar}>
           <Text style={styles.sessionAvatarText}>
-            {session.tutor_name.split(" ").map((n) => n[0]).join("")}
+            {counterpartyName.split(" ").map((n) => n[0]).join("")}
           </Text>
         </View>
-        <Text style={styles.sessionTutor}>{session.tutor_name}</Text>
+        <Text style={styles.counterLabel}>{counterpartyLabel}</Text>
+        <Text style={styles.counterName}>{counterpartyName}</Text>
         <Text style={styles.sessionSubject}>{session.subject_name}</Text>
         <Text style={styles.sessionDate}>{formatDate(session.scheduled_at)}</Text>
-        <Text style={styles.sessionDuration}>
-          {session.duration_minutes} минут
-        </Text>
+        <Text style={styles.sessionDuration}>{session.duration_minutes} минут</Text>
 
-        <View style={[styles.statusBadge, session.status === "confirmed" && styles.statusConfirmed]}>
+        <View
+          style={[
+            styles.statusBadge,
+            session.status === "confirmed" && styles.statusConfirmed,
+          ]}
+        >
           <Text style={styles.statusText}>
-            {session.status === "pending" ? "Ожидает подтверждения" :
-             session.status === "confirmed" ? "Подтверждено" :
-             session.status === "completed" ? "Завершено" : "Отменено"}
+            {session.status === "pending"
+              ? "Ожидает подтверждения"
+              : session.status === "confirmed"
+              ? "Подтверждено"
+              : session.status === "completed"
+              ? "Завершено"
+              : "Отменено"}
           </Text>
         </View>
       </View>
 
-      {(session.status === "pending" || session.status === "confirmed") && (
-        <TouchableOpacity
-          style={styles.joinButton}
-          onPress={joinCall}
-          disabled={connecting}
-        >
-          {connecting ? (
-            <ActivityIndicator color="#fff" size="small" />
-          ) : (
-            <Text style={styles.joinButtonText}>Подключиться к занятию</Text>
-          )}
-        </TouchableOpacity>
-      )}
+      {/* Блок meeting-link */}
+      <View style={styles.linkSection}>
+        <Text style={styles.sectionTitle}>Ссылка на занятие</Text>
+        <Text style={styles.sectionHint}>
+          Zoom / Google Meet / Jitsi / Skype — любая платформа по договорённости
+        </Text>
 
-      <TouchableOpacity
-        style={styles.cancelButton}
-        onPress={() => router.back()}
-      >
+        {isTutor ? (
+          // Тьютор — редактирует ссылку
+          <>
+            <TextInput
+              style={styles.input}
+              value={linkInput}
+              onChangeText={setLinkInput}
+              placeholder="https://meet.google.com/..."
+              placeholderTextColor={Colors.textSecondary}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+            />
+            <TouchableOpacity
+              style={[styles.saveBtn, saving && styles.btnDisabled]}
+              onPress={saveLink}
+              disabled={saving}
+            >
+              <Text style={styles.saveBtnText}>
+                {saving ? "Сохранение..." : "Сохранить ссылку"}
+              </Text>
+            </TouchableOpacity>
+            {session.meeting_link ? (
+              <TouchableOpacity style={styles.openBtn} onPress={openLink}>
+                <Text style={styles.openBtnText}>Проверить ссылку ↗</Text>
+              </TouchableOpacity>
+            ) : null}
+          </>
+        ) : (
+          // Ученик — только открывает ссылку или ждёт
+          <>
+            {session.meeting_link ? (
+              <>
+                <View style={styles.linkPreview}>
+                  <Text style={styles.linkText} numberOfLines={1}>
+                    {session.meeting_link}
+                  </Text>
+                </View>
+                <TouchableOpacity style={styles.joinBtn} onPress={openLink}>
+                  <Text style={styles.joinBtnText}>Открыть занятие →</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <View style={styles.waitingCard}>
+                <Text style={styles.waitingText}>
+                  Репетитор ещё не прислал ссылку. Загляните ближе к началу занятия.
+                </Text>
+              </View>
+            )}
+          </>
+        )}
+      </View>
+
+      <TouchableOpacity style={styles.cancelButton} onPress={() => router.back()}>
         <Text style={styles.cancelButtonText}>Назад</Text>
       </TouchableOpacity>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  centered: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: Colors.background },
+  container: { flex: 1, backgroundColor: Colors.background },
+  centered: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: Colors.background,
+  },
   errorText: { fontSize: 16, color: Colors.textSecondary, marginBottom: 16 },
   backButton: { padding: 12, borderRadius: 8, backgroundColor: Colors.primary },
   backButtonText: { color: "#fff", fontSize: 14, fontWeight: "600" },
 
-  // Экран ожидания
-  container: { flex: 1, backgroundColor: Colors.background, padding: 24 },
-  sessionInfo: { alignItems: "center", paddingTop: 40 },
+  sessionInfo: { alignItems: "center", paddingTop: 24, paddingBottom: 8 },
   sessionAvatar: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
+    width: 88,
+    height: 88,
+    borderRadius: 44,
     backgroundColor: Colors.primary,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 16,
+    marginBottom: 12,
   },
-  sessionAvatarText: { color: "#fff", fontSize: 32, fontWeight: "700" },
-  sessionTutor: { fontSize: 22, fontWeight: "700", color: Colors.text },
-  sessionSubject: { fontSize: 16, color: Colors.primary, fontWeight: "600", marginTop: 4 },
+  sessionAvatarText: { color: "#fff", fontSize: 28, fontWeight: "700" },
+  counterLabel: { fontSize: 12, color: Colors.textSecondary, textTransform: "uppercase" },
+  counterName: { fontSize: 20, fontWeight: "700", color: Colors.text, marginTop: 2 },
+  sessionSubject: { fontSize: 15, color: Colors.primary, fontWeight: "600", marginTop: 6 },
   sessionDate: { fontSize: 14, color: Colors.textSecondary, marginTop: 8 },
   sessionDuration: { fontSize: 14, color: Colors.textSecondary, marginTop: 2 },
   statusBadge: {
-    marginTop: 16,
+    marginTop: 14,
     paddingHorizontal: 16,
     paddingVertical: 6,
     borderRadius: 16,
@@ -266,74 +258,62 @@ const styles = StyleSheet.create({
   statusConfirmed: { backgroundColor: Colors.success + "20" },
   statusText: { fontSize: 13, fontWeight: "600", color: Colors.text },
 
-  joinButton: {
-    backgroundColor: Colors.secondary,
-    borderRadius: 12,
-    padding: 18,
-    alignItems: "center",
-    marginTop: 40,
+  linkSection: {
+    marginTop: 24,
+    padding: 16,
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
-  joinButtonText: { color: "#fff", fontSize: 17, fontWeight: "700" },
+  sectionTitle: { fontSize: 16, fontWeight: "700", color: Colors.text },
+  sectionHint: { fontSize: 12, color: Colors.textSecondary, marginTop: 4, marginBottom: 12 },
+  input: {
+    backgroundColor: Colors.inputBg,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: Colors.text,
+  },
+  saveBtn: {
+    backgroundColor: Colors.primary,
+    borderRadius: 10,
+    padding: 14,
+    alignItems: "center",
+    marginTop: 12,
+  },
+  saveBtnText: { color: "#fff", fontSize: 15, fontWeight: "700" },
+  btnDisabled: { opacity: 0.5 },
+  openBtn: { padding: 12, alignItems: "center", marginTop: 6 },
+  openBtnText: { color: Colors.primary, fontSize: 14, fontWeight: "600" },
+
+  linkPreview: {
+    backgroundColor: Colors.inputBg,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+  },
+  linkText: { color: Colors.text, fontSize: 13 },
+  joinBtn: {
+    backgroundColor: Colors.secondary,
+    borderRadius: 10,
+    padding: 16,
+    alignItems: "center",
+  },
+  joinBtnText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  waitingCard: {
+    backgroundColor: Colors.inputBg,
+    borderRadius: 10,
+    padding: 16,
+  },
+  waitingText: { fontSize: 14, color: Colors.textSecondary, lineHeight: 20 },
+
   cancelButton: {
     borderRadius: 12,
     padding: 16,
     alignItems: "center",
-    marginTop: 12,
+    marginTop: 16,
   },
   cancelButtonText: { color: Colors.textSecondary, fontSize: 15 },
-
-  // Экран активного звонка
-  callContainer: { flex: 1, backgroundColor: "#1a1a2e" },
-  videoArea: { flex: 1, position: "relative" },
-  remoteVideo: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#16213e",
-  },
-  videoPlaceholder: { color: "#fff", fontSize: 24, fontWeight: "700" },
-  videoSubtext: { color: "rgba(255,255,255,0.5)", fontSize: 13, marginTop: 4 },
-  localVideo: {
-    position: "absolute",
-    top: 16,
-    right: 16,
-    width: 100,
-    height: 140,
-    borderRadius: 12,
-    backgroundColor: "#0f3460",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.3)",
-  },
-  localVideoText: { color: "#fff", fontSize: 14 },
-
-  callInfo: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    backgroundColor: "#16213e",
-  },
-  callSubject: { color: "#fff", fontSize: 15, fontWeight: "600" },
-  callTimer: { color: Colors.secondary, fontSize: 16, fontWeight: "700" },
-
-  callControls: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    paddingVertical: 20,
-    paddingHorizontal: 16,
-    backgroundColor: "#16213e",
-    borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.1)",
-  },
-  controlButton: { alignItems: "center", padding: 8 },
-  controlIcon: { fontSize: 24, marginBottom: 4 },
-  controlLabel: { color: "rgba(255,255,255,0.7)", fontSize: 11 },
-  endCallButton: {
-    backgroundColor: Colors.error,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-  },
 });

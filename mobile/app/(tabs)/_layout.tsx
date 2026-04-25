@@ -1,5 +1,5 @@
 // Layout с нижними вкладками — набор зависит от роли пользователя
-import { Tabs } from "expo-router";
+import { Redirect, Tabs } from "expo-router";
 import { Text } from "react-native";
 import { Colors } from "../../constants/theme";
 import { useAuthStore } from "../../store/authStore";
@@ -12,8 +12,15 @@ function TabIcon({ label, focused }: { label: string; focused: boolean }) {
 }
 
 export default function TabLayout() {
-  const role = useAuthStore((s) => s.user?.role);
-  const isTutor = role === "tutor";
+  const user = useAuthStore((s) => s.user);
+  const isAuth = useAuthStore((s) => s.isAuth);
+  // После logout user=null / isAuth=false — нельзя продолжать рендерить табы
+  // (ветвление по роли отвалится и вкладка тьютора крашнет приложение).
+  // Отправляем сразу в auth-группу.
+  if (!isAuth || !user) {
+    return <Redirect href="/(auth)/login" />;
+  }
+  const isTutor = user.role === "tutor";
 
   // Утилита: `href: null` скрывает таб в expo-router
   const hide = (cond: boolean) => (cond ? { href: null as any } : {});

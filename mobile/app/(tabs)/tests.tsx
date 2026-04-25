@@ -17,7 +17,7 @@ type FeedbackRating = "too_easy" | "ok" | "too_hard";
 type ExamType = "ege" | "oge" | "regular";
 type Difficulty = "easy" | "medium" | "hard";
 
-type SubjectItem = { id: number; name: string; tests_count: number };
+type SubjectItem = { id: number; name: string; slug: string; tests_count: number };
 type TaskNumberItem = { task_number: number; count: number };
 type TestListItem = {
   id: number;
@@ -48,14 +48,18 @@ type Stage =
   | "exam"
   | "mode"
   | "subject"
+  | "math-variant"
   | "task"
   | "difficulty"
+  | "num-questions"
   | "list"
   | "loading"
   | "running"
   | "result";
 
 type PickMode = "manual" | "ai";
+
+type MathVariant = "profile" | "base";
 
 const EXAM_LABELS: Record<ExamType, string> = {
   ege: "ЕГЭ",
@@ -69,12 +73,20 @@ const DIFFICULTY_LABELS: Record<Difficulty, string> = {
   hard: "Сложный",
 };
 
+// Доступное количество вопросов в одном AI-сгенерированном тесте.
+// Бэк валидирует 1..30 — фронт показывает несколько ходовых пресетов.
+const NUM_QUESTIONS_PRESETS: number[] = [3, 5, 10, 15, 20];
+
+// Fallback максимум, если /tests/task-range упал. Для regular на бэке тоже 30.
+const TASK_RANGE_FALLBACK = 30;
+
 export default function TestsScreen() {
   const [stage, setStage] = useState<Stage>("exam");
   const [mode, setMode] = useState<PickMode>("manual");
 
   const [examType, setExamType] = useState<ExamType | null>(null);
   const [subject, setSubject] = useState<SubjectItem | null>(null);
+  const [mathVariant, setMathVariant] = useState<MathVariant | null>(null);
   const [taskNumber, setTaskNumber] = useState<number | null>(null);
   const [difficulty, setDifficulty] = useState<Difficulty | null>(null);
   // Сложность, которую подобрал AI — показываем плашку «AI подобрал: medium»
@@ -115,6 +127,7 @@ export default function TestsScreen() {
     setMode("manual");
     setExamType(null);
     setSubject(null);
+    setMathVariant(null);
     setTaskNumber(null);
     setDifficulty(null);
     setAiDifficulty(null);
@@ -136,12 +149,28 @@ export default function TestsScreen() {
     } else if (stage === "subject") {
       setStage("mode");
       setSubject(null);
-    } else if (stage === "task") {
+    } else if (stage === "math-variant") {
       setStage("subject");
       setSubject(null);
+      setMathVariant(null);
+    } else if (stage === "task") {
+      // Если это математика ЕГЭ — возвращаемся к выбору профиля/базы.
+      // Иначе — к выбору предмета.
+      const needsMathStep =
+        examType === "ege" && subject?.slug === "math";
+      if (needsMathStep) {
+        setStage("math-variant");
+        setMathVariant(null);
+      } else {
+        setStage("subject");
+        setSubject(null);
+      }
     } else if (stage === "difficulty") {
       setStage("task");
       setTaskNumber(null);
+    } else if (stage === "num-questions") {
+      setStage("difficulty");
+      setDifficulty(null);
     } else if (stage === "list") {
       // Для AI-подбора назад к выбору предмета; для manual — к сложности
       if (mode === "ai") {
@@ -155,9 +184,11 @@ export default function TestsScreen() {
       setCurrentTest(null);
       setAnswers({});
       setResult(null);
-      setStage("list");
+      // Manual-режим — нет списка тестов (AI генерировал на лету),
+      // возвращаемся к выбору количества вопросов, чтобы сгенерировать заново
+      setStage(mode === "ai" ? "list" : "num-questions");
     }
-  }, [stage, mode]);
+  }, [stage, mode, examType, subject]);
 
   // Шаг: Выбор экзамена → выбор режима (AI vs manual)
   const pickExam = useCallback((type: ExamType) => {
@@ -186,14 +217,63 @@ export default function TestsScreen() {
     [examType]
   );
 
-  // Шаг: Выбор предмета → (AI: подбор тестов; Manual: загрузка номеров заданий)
+  // Загрузка списка номеров заданий — реальный максимум по предмету/формату
+  // (плюс счётчики из банка для подсказки).
+  const loadTaskNumbers = useCallback(
+    async (
+      subjectItem: SubjectItem,
+      exam: ExamType,
+      variant: MathVariant | null,
+    ) => {
+      // Сначала забираем range — он определяет, сколько номеров рисовать.
+      let maxN = TASK_RANGE_FALLBACK;
+      try {
+        const params: Record<string, any> = {
+          subject_id: subjectItem.id,
+          exam_type: exam,
+        };
+        if (variant) params.math_variant = variant;
+        const rangeRes = await api.get("/tests/task-range", { params });
+        maxN = rangeRes.data.max_task_number ?? TASK_RANGE_FALLBACK;
+      } catch {
+        // Используем fallback и идём дальше
+      }
+
+      // Сразу показываем 1..maxN без счётчиков, потом домерживаем счётчики
+      setTaskNumbers(
+        Array.from({ length: maxN }, (_, i) => ({ task_number: i + 1, count: 0 }))
+      );
+      setStage("task");
+
+      try {
+        const res = await api.get("/tests/task-numbers", {
+          params: { subject_id: subjectItem.id, exam_type: exam },
+        });
+        const counts: Record<number, number> = Object.fromEntries(
+          (res.data as TaskNumberItem[]).map((t) => [t.task_number, t.count])
+        );
+        setTaskNumbers(
+          Array.from({ length: maxN }, (_, i) => ({
+            task_number: i + 1,
+            count: counts[i + 1] || 0,
+          }))
+        );
+      } catch {
+        // молча — у нас уже есть статический список
+      }
+    },
+    []
+  );
+
+  // Шаг: Выбор предмета → (AI: подбор тестов; Manual: math-variant для математики ЕГЭ или task)
   const pickSubject = useCallback(
     async (s: SubjectItem) => {
       if (!examType) return;
       setSubject(s);
-      setLoading(true);
-      try {
-        if (mode === "ai") {
+
+      if (mode === "ai") {
+        setLoading(true);
+        try {
           // AI подбор — бэк сам решает сложность по фидбекам
           const res = await api.post("/tests/recommend", {
             subject_id: s.id,
@@ -203,21 +283,34 @@ export default function TestsScreen() {
           setAiDifficulty(res.data.difficulty as Difficulty);
           setTests(res.data.tests);
           setStage("list");
-        } else {
-          const res = await api.get("/tests/task-numbers", {
-            params: { subject_id: s.id, exam_type: examType },
-          });
-          setTaskNumbers(res.data);
-          setStage("task");
+        } catch {
+          Alert.alert("Ошибка", "Не удалось подобрать тесты");
+          setSubject(null);
+        } finally {
+          setLoading(false);
         }
-      } catch {
-        Alert.alert("Ошибка", "Не удалось загрузить задания");
-        setSubject(null);
-      } finally {
-        setLoading(false);
+        return;
       }
+
+      // Manual: для математики ЕГЭ — отдельный шаг профиль/база (range у них разный)
+      if (examType === "ege" && s.slug === "math") {
+        setStage("math-variant");
+        return;
+      }
+
+      await loadTaskNumbers(s, examType, null);
     },
-    [examType, mode]
+    [examType, mode, loadTaskNumbers]
+  );
+
+  // Шаг: Выбор варианта математики (профильная / базовая) → загрузка номеров заданий
+  const pickMathVariant = useCallback(
+    async (v: MathVariant) => {
+      if (!examType || !subject) return;
+      setMathVariant(v);
+      await loadTaskNumbers(subject, examType, v);
+    },
+    [examType, subject, loadTaskNumbers]
   );
 
   // Шаг: Выбор задания → переход к сложности
@@ -226,32 +319,44 @@ export default function TestsScreen() {
     setStage("difficulty");
   }, []);
 
-  // Шаг: Выбор сложности → загрузка тестов
-  const pickDifficulty = useCallback(
-    async (d: Difficulty | null) => {
+  // Шаг: Выбор сложности → переход к выбору количества вопросов
+  const pickDifficulty = useCallback((d: Difficulty | null) => {
+    setDifficulty(d);
+    setStage("num-questions");
+  }, []);
+
+  // Шаг: Выбор количества вопросов → AI генерирует тест и сразу открывает running
+  const pickNumQuestions = useCallback(
+    async (n: number) => {
       if (!examType || !subject) return;
-      setDifficulty(d);
       setLoading(true);
+      setStage("loading");
       try {
-        const params: Record<string, any> = {
+        const payload: Record<string, any> = {
           subject_id: subject.id,
           exam_type: examType,
-          limit: 50,
+          difficulty: difficulty || "medium",
+          num_questions: n,
         };
-        if (taskNumber !== null) params.task_number = taskNumber;
-        if (d) params.difficulty = d;
+        if (taskNumber !== null) payload.task_number = taskNumber;
+        if (mathVariant) payload.math_variant = mathVariant;
 
-        const res = await api.get("/tests", { params });
-        setTests(res.data);
-        setStage("list");
-      } catch {
-        Alert.alert("Ошибка", "Не удалось загрузить тесты");
-        setDifficulty(null);
+        const res = await api.post<FullTest>("/tests/ai-generate", payload);
+        setCurrentTest(res.data);
+        setAnswers({});
+        setFeedbackSent(null);
+        setElapsedSec(0);
+        startedAtRef.current = Date.now();
+        setStage("running");
+      } catch (e: any) {
+        const msg = e?.response?.data?.detail || "Не удалось сгенерировать тест";
+        Alert.alert("Ошибка", msg);
+        setStage("num-questions");
       } finally {
         setLoading(false);
       }
     },
-    [examType, subject, taskNumber]
+    [examType, subject, taskNumber, difficulty, mathVariant]
   );
 
   // Открыть тест → загрузить вопросы
@@ -317,10 +422,11 @@ export default function TestsScreen() {
     if (examType) parts.push(EXAM_LABELS[examType]);
     if (stage !== "exam" && stage !== "mode" && mode === "ai") parts.push("AI");
     if (subject) parts.push(subject.name);
+    if (mathVariant) parts.push(mathVariant === "profile" ? "Профильная" : "Базовая");
     if (taskNumber !== null) parts.push(`№${taskNumber}`);
     if (difficulty) parts.push(DIFFICULTY_LABELS[difficulty]);
     return parts.join(" · ");
-  }, [examType, subject, taskNumber, difficulty, stage, mode]);
+  }, [examType, subject, mathVariant, taskNumber, difficulty, stage, mode]);
 
   if (loading && stage !== "running") {
     return (
@@ -420,6 +526,42 @@ export default function TestsScreen() {
     );
   }
 
+  // === Шаг 2.5: Профильная / Базовая (только для математики ЕГЭ) ===
+  if (stage === "math-variant") {
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        <TouchableOpacity onPress={goBack}>
+          <Text style={styles.backLink}>← Назад</Text>
+        </TouchableOpacity>
+        <Text style={styles.crumb}>{breadcrumb}</Text>
+        <Text style={styles.title}>Профильная или базовая?</Text>
+        <Text style={styles.subtitle}>
+          У ЕГЭ по математике две версии — выберите свою
+        </Text>
+
+        <TouchableOpacity
+          style={styles.bigCard}
+          onPress={() => pickMathVariant("profile")}
+        >
+          <Text style={styles.bigCardTitle}>Профильная</Text>
+          <Text style={styles.bigCardHint}>
+            19 заданий — для технических и математических вузов
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.bigCard}
+          onPress={() => pickMathVariant("base")}
+        >
+          <Text style={styles.bigCardTitle}>Базовая</Text>
+          <Text style={styles.bigCardHint}>
+            21 задание — для гуманитарных направлений
+          </Text>
+        </TouchableOpacity>
+      </ScrollView>
+    );
+  }
+
   // === Шаг 3: Номер задания ===
   if (stage === "task") {
     return (
@@ -429,10 +571,13 @@ export default function TestsScreen() {
         </TouchableOpacity>
         <Text style={styles.crumb}>{breadcrumb}</Text>
         <Text style={styles.title}>Номер задания</Text>
+        <Text style={styles.subtitle}>
+          AI сгенерирует рандомный тест по выбранному номеру
+        </Text>
 
         <TouchableOpacity style={styles.row} onPress={() => pickTaskNumber(null)}>
           <Text style={styles.rowTitle}>Любое задание</Text>
-          <Text style={styles.rowHint}>Все доступные номера</Text>
+          <Text style={styles.rowHint}>AI выберет тему сам</Text>
         </TouchableOpacity>
 
         {taskNumbers.map((t) => (
@@ -442,7 +587,11 @@ export default function TestsScreen() {
             onPress={() => pickTaskNumber(t.task_number)}
           >
             <Text style={styles.rowTitle}>Задание №{t.task_number}</Text>
-            <Text style={styles.rowHint}>{t.count} тестов</Text>
+            <Text style={styles.rowHint}>
+              {t.count > 0
+                ? `${t.count} в банке + AI-генерация`
+                : "AI-генерация (в банке пока пусто)"}
+            </Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
@@ -458,9 +607,12 @@ export default function TestsScreen() {
         </TouchableOpacity>
         <Text style={styles.crumb}>{breadcrumb}</Text>
         <Text style={styles.title}>Сложность</Text>
+        <Text style={styles.subtitle}>
+          Дальше выберите количество вопросов в тесте
+        </Text>
 
         <TouchableOpacity style={styles.row} onPress={() => pickDifficulty(null)}>
-          <Text style={styles.rowTitle}>Любая</Text>
+          <Text style={styles.rowTitle}>Средняя (по умолчанию)</Text>
         </TouchableOpacity>
         {(["easy", "medium", "hard"] as Difficulty[]).map((d) => (
           <TouchableOpacity
@@ -469,6 +621,39 @@ export default function TestsScreen() {
             onPress={() => pickDifficulty(d)}
           >
             <Text style={styles.rowTitle}>{DIFFICULTY_LABELS[d]}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    );
+  }
+
+  // === Шаг 4.5: Количество вопросов ===
+  if (stage === "num-questions") {
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        <TouchableOpacity onPress={goBack}>
+          <Text style={styles.backLink}>← Назад</Text>
+        </TouchableOpacity>
+        <Text style={styles.crumb}>{breadcrumb}</Text>
+        <Text style={styles.title}>Сколько вопросов?</Text>
+        <Text style={styles.subtitle}>
+          После выбора AI сразу начнёт генерировать тест (10-30 секунд)
+        </Text>
+
+        {NUM_QUESTIONS_PRESETS.map((n) => (
+          <TouchableOpacity
+            key={n}
+            style={styles.row}
+            onPress={() => pickNumQuestions(n)}
+          >
+            <Text style={styles.rowTitle}>{n} вопросов</Text>
+            <Text style={styles.rowHint}>
+              {n <= 5
+                ? "Быстрая проверка темы"
+                : n <= 10
+                ? "Стандартный объём"
+                : "Полноценная тренировка"}
+            </Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
@@ -526,7 +711,9 @@ export default function TestsScreen() {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" color={Colors.primary} />
-        <Text style={styles.loadingText}>Загрузка теста...</Text>
+        <Text style={styles.loadingText}>
+          {mode === "manual" ? "AI генерирует тест..." : "Загрузка теста..."}
+        </Text>
       </View>
     );
   }

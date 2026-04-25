@@ -47,6 +47,8 @@ class BookingSession(Base):
         Enum(PaymentStatus), default=PaymentStatus.pending
     )
     agora_channel_name: Mapped[str | None] = mapped_column(String(100))
+    # Ссылка на внешнюю платформу видеозвонка (Zoom/Meet/Jitsi) — заполняется тьютором
+    meeting_link: Mapped[str | None] = mapped_column(String(500))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     # Поля отмены

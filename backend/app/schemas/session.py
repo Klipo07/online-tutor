@@ -28,9 +28,15 @@ class SessionResponse(BaseModel):
     price: float
     payment_status: str
     agora_channel_name: str | None = None
+    meeting_link: str | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class MeetingLinkUpdate(BaseModel):
+    """Запрос на установку ссылки на внешнюю платформу (Zoom/Meet/Jitsi)."""
+    meeting_link: str | None = Field(default=None, max_length=500)
 
 
 class SessionListResponse(BaseModel):

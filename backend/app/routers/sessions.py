@@ -12,6 +12,7 @@ from app.schemas.session import (
     SessionListResponse,
     SessionCancelRequest,
     SessionCancelResponse,
+    MeetingLinkUpdate,
 )
 from app.services.session_service import (
     BookingAlreadyStartedError,
@@ -20,6 +21,8 @@ from app.services.session_service import (
     get_session_by_id,
     cancel_booking,
 )
+from app.models.tutor import TutorProfile
+from sqlalchemy import select
 
 router = APIRouter()
 
@@ -40,6 +43,7 @@ def _session_to_response(booking) -> SessionResponse:
         price=float(booking.price),
         payment_status=booking.payment_status.value,
         agora_channel_name=booking.agora_channel_name,
+        meeting_link=booking.meeting_link,
         created_at=booking.created_at,
     )
 
@@ -151,3 +155,42 @@ async def cancel_session(
         message="Занятие успешно отменено",
         cancellation_reason=booking.cancellation_reason,
     )
+
+
+@router.put("/{session_id}/meeting-link", response_model=SessionResponse)
+async def set_meeting_link(
+    session_id: int,
+    data: MeetingLinkUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Установить / очистить ссылку на внешнюю платформу видеозвонка.
+
+    Только репетитор этого занятия может менять meeting_link.
+    Передайте пустую строку или null чтобы очистить.
+    """
+    booking = await get_session_by_id(db, session_id)
+    if booking is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Занятие не найдено",
+        )
+
+    # Проверяем что текущий user — репетитор этого занятия
+    tutor_user_id = await db.scalar(
+        select(TutorProfile.user_id).where(TutorProfile.id == booking.tutor_id)
+    )
+    if tutor_user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Только репетитор может установить ссылку",
+        )
+
+    # Очистка: пустая строка → NULL
+    link = (data.meeting_link or "").strip()
+    booking.meeting_link = link or None
+    await db.commit()
+    await db.refresh(booking)
+    # Перезагружаем с join для ответа
+    booking = await get_session_by_id(db, session_id)
+    return _session_to_response(booking)
