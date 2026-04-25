@@ -20,8 +20,15 @@ python-multipart==0.0.20
 # AI провайдеры — Anthropic (Claude) + YandexGPT (через httpx)
 anthropic==0.42.0
 
-# HTTP клиент (используется YandexProvider)
+# HTTP клиент (используется YandexProvider, импорт из sdamgia)
 httpx==0.28.1
+
+# HTML-парсер для импорта банка заданий со sdamgia.ru (Решу ЕГЭ)
+beautifulsoup4==4.12.3
+
+# SVG → PNG конвертация для чертежей с Решу ЕГЭ (Expo Go не умеет SVG)
+# Использует системную libcairo2 (ставится в Dockerfile)
+cairosvg==2.7.1
 
 # Redis — кэширование маркетплейса/предметов/тестов и rate-limit верификации email
 redis==5.2.1

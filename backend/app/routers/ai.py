@@ -288,14 +288,28 @@ async def submit_test(
     if not test:
         raise HTTPException(status_code=404, detail="Тест не найден")
 
-    # Проверяем ответы
+    # Проверяем ответы. Для input-задач (sdamgia/Решу ЕГЭ) ответ — число/слово,
+    # пользователь вводит с клавиатуры → сравниваем толерантно (trim, lowercase,
+    # запятая→точка для дробей, числовое сравнение если оба число).
+    def _matches(user: str, expected: str) -> bool:
+        u = (user or "").strip().lower().replace(",", ".").replace(" ", "")
+        e = (expected or "").strip().lower().replace(",", ".").replace(" ", "")
+        if not e:
+            return False
+        if u == e:
+            return True
+        try:
+            return float(u) == float(e)
+        except ValueError:
+            return False
+
     questions = test.questions
     correct = 0
     details = []
     for i, q in enumerate(questions):
         q_id = str(i + 1)
         user_answer = data.answers.get(q_id, "")
-        is_correct = user_answer.lower() == q.get("correct", "").lower()
+        is_correct = _matches(user_answer, q.get("correct", ""))
         if is_correct:
             correct += 1
         details.append({

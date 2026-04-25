@@ -130,6 +130,11 @@ class TestFeedbackRequest(BaseModel):
     comment: str | None = Field(default=None, max_length=500)
 
 
+def _image_url(rel_path: str) -> str:
+    """Превращаем относительный путь image_paths в URL для фронта."""
+    return f"/uploads/{rel_path.lstrip('/')}"
+
+
 def _test_to_list_item(t: Test) -> dict:
     """Форматируем тест для списка — topic с конвертацией формул."""
     return {
@@ -140,6 +145,8 @@ def _test_to_list_item(t: Test) -> dict:
         "task_number": t.task_number,
         "difficulty": t.difficulty.value,
         "questions_count": len(t.questions) if isinstance(t.questions, list) else 0,
+        "has_images": bool(t.image_paths),
+        "from_bank": not t.created_by_ai,
         "created_at": t.created_at.isoformat(),
     }
 
@@ -342,6 +349,22 @@ async def ai_generate_test(
             detail="AI вернул невалидный формат — попробуйте ещё раз",
         )
 
+    # AI иногда возвращает дубли в options ('предположить', 'предположить').
+    # Дедуплицируем с сохранением порядка — иначе UI ругается на duplicate keys
+    # и пользователь видит «два одинаковых варианта».
+    for q in questions_raw:
+        opts = q.get("options")
+        if isinstance(opts, list):
+            seen = set()
+            uniq = []
+            for o in opts:
+                key = str(o).strip().lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                uniq.append(o)
+            q["options"] = uniq
+
     # Сохраняем в БД — дальше обычный /ai/submit-test работает как с банковым тестом
     topic = f"{exam_label}, {task_label}"
     new_test = Test(
@@ -376,6 +399,9 @@ async def ai_generate_test(
         "task_number": new_test.task_number,
         "difficulty": new_test.difficulty.value,
         "questions": questions,
+        "image_urls": [],
+        "source_url": None,
+        "from_bank": False,
     }
 
 
@@ -490,6 +516,8 @@ async def get_test(
         )
     questions = format_questions(raw_questions)
 
+    image_urls = [_image_url(p) for p in (test.image_paths or [])]
+
     return {
         "id": test.id,
         "subject_id": test.subject_id,
@@ -498,6 +526,9 @@ async def get_test(
         "task_number": test.task_number,
         "difficulty": test.difficulty.value,
         "questions": questions,
+        "image_urls": image_urls,
+        "source_url": test.source_url,
+        "from_bank": not test.created_by_ai,
     }
 
 

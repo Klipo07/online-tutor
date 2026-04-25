@@ -37,6 +37,12 @@ class Test(Base):
     task_number: Mapped[int | None] = mapped_column(Integer, index=True)
     questions: Mapped[dict] = mapped_column(JSON)
     created_by_ai: Mapped[bool] = mapped_column(default=True)
+    # Импорт с внешних источников (sdamgia/Решу ЕГЭ).
+    # external_id — id задания во внешнем источнике, для идемпотентности.
+    # image_paths — список относительных путей к скачанным графикам/чертежам.
+    source_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    external_id: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    image_paths: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     # Связи

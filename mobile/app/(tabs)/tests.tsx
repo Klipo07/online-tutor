@@ -8,9 +8,21 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Image,
+  TextInput,
+  Linking,
 } from "react-native";
 import api from "../../services/api";
-import { Colors } from "../../constants/theme";
+import { Colors, API_URL } from "../../constants/theme";
+
+// API_URL = http://host/api/v1 — для статики (картинки) нужен корень без /api/v1
+const STATIC_BASE = API_URL.replace(/\/api\/v1\/?$/, "");
+const absUrl = (path: string): string =>
+  path.startsWith("http") ? path : `${STATIC_BASE}${path}`;
+
+// Чистим маркеры "[рисунок N]" из текста — картинка показывается отдельным <Image>
+const cleanQuestionText = (text: string): string =>
+  text.replace(/\[рисунок\s+\d+\]\s*/gi, "").trim();
 
 type FeedbackRating = "too_easy" | "ok" | "too_hard";
 
@@ -42,6 +54,9 @@ type FullTest = {
   task_number: number | null;
   difficulty: Difficulty;
   questions: Question[];
+  image_urls?: string[];
+  source_url?: string | null;
+  from_bank?: boolean;
 };
 
 type Stage =
@@ -325,13 +340,39 @@ export default function TestsScreen() {
     setStage("num-questions");
   }, []);
 
-  // Шаг: Выбор количества вопросов → AI генерирует тест и сразу открывает running
+  // Шаг: Выбор количества вопросов → сначала пробуем банк (Решу ЕГЭ), потом AI
   const pickNumQuestions = useCallback(
     async (n: number) => {
       if (!examType || !subject) return;
       setLoading(true);
       setStage("loading");
       try {
+        // Сначала ищем подходящие задания в банке (импорт со sdamgia).
+        // Сложность не фильтруем здесь — банк размечен дефолтно как medium,
+        // вариативность достигается рандомом по списку.
+        const bankRes = await api.get<TestListItem[]>("/tests", {
+          params: {
+            subject_id: subject.id,
+            exam_type: examType,
+            ...(taskNumber !== null ? { task_number: taskNumber } : {}),
+            limit: 50,
+          },
+        });
+        const fromBank = bankRes.data.filter((t) => (t as any).from_bank);
+        if (fromBank.length > 0) {
+          // Случайный из банка — это реальное задание Решу ЕГЭ
+          const pick = fromBank[Math.floor(Math.random() * fromBank.length)];
+          const fullRes = await api.get<FullTest>(`/tests/${pick.id}`);
+          setCurrentTest(fullRes.data);
+          setAnswers({});
+          setFeedbackSent(null);
+          setElapsedSec(0);
+          startedAtRef.current = Date.now();
+          setStage("running");
+          return;
+        }
+
+        // В банке пусто — AI-генерация
         const payload: Record<string, any> = {
           subject_id: subject.id,
           exam_type: examType,
@@ -720,8 +761,11 @@ export default function TestsScreen() {
 
   // === Прохождение теста ===
   if (stage === "running" && currentTest) {
-    const allAnswered =
-      Object.keys(answers).length === currentTest.questions.length;
+    // Считаем заполненными только непустые ответы (для input — strip)
+    const filledCount = currentTest.questions.filter(
+      (q) => (answers[String(q.id)] || "").trim().length > 0
+    ).length;
+    const allAnswered = filledCount === currentTest.questions.length;
     const mm = String(Math.floor(elapsedSec / 60)).padStart(2, "0");
     const ss = String(elapsedSec % 60).padStart(2, "0");
     return (
@@ -737,34 +781,79 @@ export default function TestsScreen() {
         <Text style={styles.crumb}>{breadcrumb}</Text>
         <Text style={styles.title}>{currentTest.topic}</Text>
 
-        {currentTest.questions.map((q) => (
-          <View key={q.id} style={styles.questionCard}>
-            <Text style={styles.questionText}>
-              {q.id}. {q.question}
+        {/* Бейдж источника — для заданий из банка Решу ЕГЭ */}
+        {currentTest.from_bank && (
+          <TouchableOpacity
+            style={styles.sourceBadge}
+            onPress={() =>
+              currentTest.source_url && Linking.openURL(currentTest.source_url)
+            }
+            disabled={!currentTest.source_url}
+          >
+            <Text style={styles.sourceBadgeText}>
+              📘 Реальное задание ФИПИ (Решу ЕГЭ)
             </Text>
-            {q.options?.map((opt) => (
-              <TouchableOpacity
-                key={opt}
-                style={[
-                  styles.optionButton,
-                  answers[String(q.id)] === opt && styles.optionSelected,
-                ]}
-                onPress={() =>
-                  setAnswers((prev) => ({ ...prev, [String(q.id)]: opt }))
-                }
-              >
-                <Text
-                  style={[
-                    styles.optionText,
-                    answers[String(q.id)] === opt && styles.optionTextSelected,
-                  ]}
-                >
-                  {opt}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          </TouchableOpacity>
+        )}
+
+        {/* Графики/чертежи — общие для всего теста */}
+        {currentTest.image_urls?.map((url, i) => (
+          <Image
+            key={i}
+            source={{ uri: absUrl(url) }}
+            style={styles.questionImage}
+            resizeMode="contain"
+          />
         ))}
+
+        {currentTest.questions.map((q, qIdx) => {
+          const isInput = q.type === "input";
+          // Используем индекс в key — AI/банк могут вернуть дубли q.id или дубли вариантов
+          return (
+            <View key={`q-${qIdx}-${q.id}`} style={styles.questionCard}>
+              <Text style={styles.questionText}>
+                {q.id}. {cleanQuestionText(q.question)}
+              </Text>
+              {isInput ? (
+                <TextInput
+                  style={styles.answerInput}
+                  placeholder="Введите ответ"
+                  placeholderTextColor={Colors.textSecondary}
+                  value={answers[String(q.id)] || ""}
+                  onChangeText={(text) =>
+                    setAnswers((prev) => ({ ...prev, [String(q.id)]: text }))
+                  }
+                  keyboardType="default"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              ) : (
+                q.options?.map((opt, optIdx) => (
+                  <TouchableOpacity
+                    key={`q${qIdx}-opt${optIdx}`}
+                    style={[
+                      styles.optionButton,
+                      answers[String(q.id)] === opt && styles.optionSelected,
+                    ]}
+                    onPress={() =>
+                      setAnswers((prev) => ({ ...prev, [String(q.id)]: opt }))
+                    }
+                  >
+                    <Text
+                      style={[
+                        styles.optionText,
+                        answers[String(q.id)] === opt &&
+                          styles.optionTextSelected,
+                      ]}
+                    >
+                      {opt}
+                    </Text>
+                  </TouchableOpacity>
+                ))
+              )}
+            </View>
+          );
+        })}
 
         <TouchableOpacity
           style={[
@@ -779,7 +868,7 @@ export default function TestsScreen() {
               ? "Проверяю..."
               : allAnswered
               ? "Отправить ответы"
-              : `Ответьте на все вопросы (${Object.keys(answers).length}/${currentTest.questions.length})`}
+              : `Ответьте на все вопросы (${filledCount}/${currentTest.questions.length})`}
           </Text>
         </TouchableOpacity>
       </ScrollView>
@@ -842,7 +931,7 @@ export default function TestsScreen() {
             ]}
           >
             <Text style={styles.detailQuestion}>
-              {i + 1}. {d.question}
+              {i + 1}. {cleanQuestionText(d.question)}
             </Text>
             <Text style={styles.detailLine}>
               Ваш ответ: <Text style={styles.detailAnswer}>{d.your_answer || "—"}</Text>
@@ -936,6 +1025,36 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     marginBottom: 8,
+  },
+  answerInput: {
+    backgroundColor: Colors.inputBg,
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    color: Colors.text,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  questionImage: {
+    width: "100%",
+    height: 220,
+    backgroundColor: Colors.inputBg,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  sourceBadge: {
+    backgroundColor: "#E0F2FE",
+    borderColor: "#0284C7",
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 12,
+  },
+  sourceBadgeText: {
+    color: "#0369A1",
+    fontSize: 13,
+    fontWeight: "600",
+    textAlign: "center",
   },
   optionSelected: { backgroundColor: Colors.primary },
   optionText: { fontSize: 14, color: Colors.text },
