@@ -42,7 +42,6 @@ def _session_to_response(booking) -> SessionResponse:
         status=booking.status.value,
         price=float(booking.price),
         payment_status=booking.payment_status.value,
-        agora_channel_name=booking.agora_channel_name,
         meeting_link=booking.meeting_link,
         created_at=booking.created_at,
     )

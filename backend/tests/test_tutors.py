@@ -99,12 +99,12 @@ class TestTutorsAPI:
 
     @pytest.mark.asyncio
     async def test_create_review_unauthorized(self, client: AsyncClient, test_tutor_profile: TutorProfile):
-        """Отзыв без авторизации возвращает 401."""
+        """Отзыв без авторизации — отказано (HTTPBearer возвращает 403)."""
         response = await client.post(
             f"/api/v1/tutors/{test_tutor_profile.id}/review",
             json={"rating": 5, "comment": "Тестовый отзыв"},
         )
-        assert response.status_code == 401
+        assert response.status_code in (401, 403)
 
     @pytest.mark.asyncio
     async def test_create_review_self(

@@ -1,6 +1,5 @@
 """Сервис бронирования занятий — создание, отмена, список."""
 
-import uuid
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, or_
@@ -58,9 +57,6 @@ async def create_booking(
     # Рассчитываем стоимость
     price = float(tutor.price_per_hour) * duration_minutes / 60
 
-    # Генерируем уникальное имя канала для видеозвонка
-    channel_name = f"session-{uuid.uuid4().hex[:12]}"
-
     booking = BookingSession(
         student_id=student_id,
         tutor_id=tutor_id,
@@ -70,7 +66,6 @@ async def create_booking(
         status=BookingStatus.pending,
         price=price,
         payment_status=PaymentStatus.pending,
-        agora_channel_name=channel_name,
     )
     db.add(booking)
     await db.commit()

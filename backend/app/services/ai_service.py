@@ -6,7 +6,6 @@
 from abc import ABC, abstractmethod
 
 import httpx
-from anthropic import AsyncAnthropic
 
 from app.config import settings
 
@@ -131,9 +130,20 @@ class BaseAIProvider(ABC):
 
 
 class AnthropicProvider(BaseAIProvider):
-    """Провайдер Anthropic (Claude)."""
+    """Провайдер Anthropic (Claude).
+
+    SDK подгружается лениво — если AI_PROVIDER не anthropic, пакет
+    `anthropic` можно не ставить (экономит место в образе).
+    """
 
     def __init__(self):
+        try:
+            from anthropic import AsyncAnthropic
+        except ImportError as e:
+            raise RuntimeError(
+                "Для AI_PROVIDER=anthropic нужно установить пакет: "
+                "pip install anthropic"
+            ) from e
         self.client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
         self.model = settings.AI_MODEL_ANTHROPIC
 

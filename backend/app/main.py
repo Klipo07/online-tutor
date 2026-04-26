@@ -9,7 +9,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
-from app.routers import auth, users, tutors, sessions, ai, subjects, tests, video
+from app.routers import auth, users, tutors, sessions, ai, subjects, tests
 from app.services import cache
 
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
@@ -39,7 +39,6 @@ app.include_router(sessions.router, prefix="/api/v1/sessions", tags=["Занят
 app.include_router(ai.router, prefix="/api/v1/ai", tags=["AI Тьютор"])
 app.include_router(subjects.router, prefix="/api/v1/subjects", tags=["Предметы"])
 app.include_router(tests.router, prefix="/api/v1/tests", tags=["Тесты"])
-app.include_router(video.router, prefix="/api/v1/video", tags=["Видеозвонки"])
 
 # Статика — аватарки и прочие загруженные файлы
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")

@@ -29,7 +29,6 @@ type BookingSession = {
   status: "pending" | "confirmed" | "completed" | "cancelled";
   price: number;
   payment_status: string;
-  agora_channel_name: string | null;
   created_at: string;
 };
 

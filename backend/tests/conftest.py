@@ -13,7 +13,7 @@ from app.main import app
 from app.models.user import User, UserRole
 from app.models.subject import Subject, Topic
 from app.models.tutor import TutorProfile
-from app.services import auth_service
+from app.services import auth_service, cache
 from app.services.auth_service import hash_password, create_access_token
 
 # Ускоренный bcrypt для тестов (rounds=4 вместо дефолтных 12) — снижает время тестов в разы
@@ -37,12 +37,18 @@ def event_loop():
 
 @pytest_asyncio.fixture(autouse=True)
 async def setup_db():
-    """Создание и очистка таблиц перед каждым тестом."""
+    """Создание и очистка таблиц + Redis-кэша перед каждым тестом.
+
+    Без сброса Redis-кэша роутеры с `cache.get/set` (subjects, tests, tutors)
+    видят данные предыдущих тестов и возвращают пустой/несвежий список.
+    """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    await cache.delete_pattern("*")
     yield
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+    await cache.delete_pattern("*")
 
 
 @pytest_asyncio.fixture

@@ -1,6 +1,7 @@
 // Переиспользуемый аватар с инициалами или картинкой
 import { memo, useMemo } from "react";
-import { View, Text, Image, StyleSheet } from "react-native";
+import { View, Text, StyleSheet } from "react-native";
+import { Image } from "expo-image";
 import { Colors, API_URL } from "../constants/theme";
 
 type Props = {
@@ -36,7 +37,13 @@ function AvatarComponent({ name, url, size = 48, fontSize }: Props) {
   if (src) {
     return (
       <View style={wrap}>
-        <Image source={{ uri: src }} style={{ width: size, height: size, borderRadius: size / 2 }} />
+        <Image
+          source={{ uri: src }}
+          style={{ width: size, height: size, borderRadius: size / 2 }}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          transition={150}
+        />
       </View>
     );
   }

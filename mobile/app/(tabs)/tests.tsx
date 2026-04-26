@@ -8,10 +8,10 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
-  Image,
   TextInput,
   Linking,
 } from "react-native";
+import { Image } from "expo-image";
 import api from "../../services/api";
 import { Colors, API_URL } from "../../constants/theme";
 
@@ -802,7 +802,9 @@ export default function TestsScreen() {
             key={i}
             source={{ uri: absUrl(url) }}
             style={styles.questionImage}
-            resizeMode="contain"
+            contentFit="contain"
+            cachePolicy="memory-disk"
+            transition={200}
           />
         ))}
 

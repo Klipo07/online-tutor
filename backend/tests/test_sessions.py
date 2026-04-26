@@ -38,17 +38,17 @@ class TestSessionsAPI:
         assert data["subject_name"] == "Математика"
         assert data["status"] == "pending"
         assert data["duration_minutes"] == 60
-        assert data["agora_channel_name"] is not None
+        assert data["meeting_link"] is None
 
     @pytest.mark.asyncio
     async def test_create_session_unauthorized(self, client: AsyncClient):
-        """Бронирование без авторизации возвращает 401."""
+        """Бронирование без авторизации — отказано (HTTPBearer возвращает 403)."""
         response = await client.post("/api/v1/sessions/", json={
             "tutor_id": 1,
             "subject_id": 1,
             "scheduled_at": _utc_naive_now().isoformat(),
         })
-        assert response.status_code == 401
+        assert response.status_code in (401, 403)
 
     @pytest.mark.asyncio
     async def test_create_session_past_time(

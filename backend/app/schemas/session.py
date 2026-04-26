@@ -27,7 +27,6 @@ class SessionResponse(BaseModel):
     status: str
     price: float
     payment_status: str
-    agora_channel_name: str | None = None
     meeting_link: str | None = None
     created_at: datetime
 
